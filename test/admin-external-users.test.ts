@@ -403,7 +403,7 @@ test("an agent token may invite a member but never grant, demote, or revoke an o
 
     const promote = await invite(s.base, { email: "boss@partner.example", role: "org_admin", expiresAt }, cap);
     assert.equal(promote.status, 403);
-    assert.match(((await promote.json()) as any).message, /portal-only/);
+    assert.match(((await promote.json()) as any).message, /operator-only/);
     assert.equal(s.built.identity.externalMember("boss@partner.example"), undefined);
 
     const now = Date.now();
@@ -419,7 +419,7 @@ test("an agent token may invite a member but never grant, demote, or revoke an o
     assert.equal(demote.status, 403);
     const del = await revoke(s.base, "boss@partner.example", cap);
     assert.equal(del.status, 403);
-    assert.match(((await del.json()) as any).message, /portal-only/);
+    assert.match(((await del.json()) as any).message, /operator-only/);
     assert.equal(s.built.identity.externalMember("boss@partner.example")?.role, "org_admin");
 
     assert.equal((await revoke(s.base, "pat@partner.example", cap)).status, 200);
@@ -451,7 +451,7 @@ test("an agent token may invite a member but never grant, demote, or revoke an o
     ]) {
       const r = await attempt;
       assert.equal(r.status, 403);
-      assert.match(((await r.json()) as any).message, /portal-only/);
+      assert.match(((await r.json()) as any).message, /operator-only/);
     }
     assert.equal(s.built.identity.classify("promoted@partner.example").type, "internal");
     assert.equal(adminStatusFromGrants(await s.built.admin.listGrants(), "promoted@partner.example").isAdmin, true);

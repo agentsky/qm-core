@@ -6,40 +6,34 @@ import { WebClient, LogLevel } from "@slack/web-api";
 import { HISTORY_NO_RETRY } from "../src/slack/config.ts";
 import { slackHistoryRateLimitMessage } from "../src/slack/history-rate-limit.ts";
 
-test("managed history throttling gives retry timing and workspace app setup without leaking the error", () => {
-  const message = slackHistoryRateLimitMessage(
-    { code: "slack_webapi_rate_limited_error", retryAfter: 30, message: "private-token" },
-    { managed: true, setupUrl: "https://qm.example/admin/?setup=slack" },
-  );
+test("history throttling gives retry timing without leaking the error or linking anywhere", () => {
+  const message = slackHistoryRateLimitMessage({
+    code: "slack_webapi_rate_limited_error",
+    retryAfter: 30,
+    message: "private-token",
+  });
   assert.match(message!, /Try again in 30 seconds/);
   assert.match(message!, /I may be missing earlier context/);
   assert.doesNotMatch(message!, /workspace admin|ask an admin/);
-  assert.match(message!, /https:\/\/qm.example\/admin\/\?setup=slack/);
+  assert.doesNotMatch(message!, /https?:\/\//);
   assert.doesNotMatch(message!, /private-token/);
 });
 
-test("workspace-owned apps receive retry guidance without instructions to replace their app", () => {
+test("a sub-second retry delay rounds up to whole seconds", () => {
   const message = slackHistoryRateLimitMessage({ code: "slack_webapi_rate_limited_error", retryAfter: 2.2 });
   assert.match(message!, /Try again in 3 seconds/);
-  assert.doesNotMatch(message!, /set up|workspace-owned/);
 });
 
-test("unrelated errors do not suggest changing Slack apps", () => {
+test("unrelated errors produce no throttling note", () => {
   for (const error of [null, "rate limited", new Error("429"), { data: { error: "missing_scope" } }]) {
-    assert.equal(slackHistoryRateLimitMessage(error, { managed: true }), undefined);
+    assert.equal(slackHistoryRateLimitMessage(error), undefined);
   }
 });
 
-test("malformed delay and unsafe setup URLs use plain guidance", () => {
-  for (const setupUrl of ["javascript:alert(1)", "https://user:secret@qm.example/admin/", "invalid"]) {
-    const message = slackHistoryRateLimitMessage(
-      { data: { error: "ratelimited" }, retryAfter: "invalid" },
-      { managed: true, setupUrl },
-    );
-    assert.match(message!, /Try again shortly/);
-    assert.doesNotMatch(message!, /set up/);
-    assert.doesNotMatch(message!, /javascript|secret|NaN/);
-  }
+test("a malformed delay degrades to plain guidance", () => {
+  const message = slackHistoryRateLimitMessage({ data: { error: "ratelimited" }, retryAfter: "invalid" });
+  assert.match(message!, /Try again shortly/);
+  assert.doesNotMatch(message!, /NaN/);
 });
 
 test("Slack history 429 returns immediately instead of sleeping inside the SDK", { timeout: 5000 }, async () => {

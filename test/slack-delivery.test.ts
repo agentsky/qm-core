@@ -12,14 +12,12 @@ import {
   postWithVerify,
   SLACK_POST_SPLIT_LIMIT,
   recoveryVerifyOldest,
-  channelSurfaceUrl,
-  channelWelcomeMessage,
+  CHANNEL_WELCOME_MESSAGE,
   surfaceHeaderText,
   headerUpdate,
   isSurfaceHeaderMessage,
   findHeaderPin,
   createSurfaceHeaderEnsurer,
-  scopeSurfaceUrl,
   onBotJoinedChannel,
 } from "../src/slack/lib.ts";
 
@@ -201,7 +199,6 @@ test("createDeliveryTracker: a posted-but-unacked entry evicted by the cap is gi
   assert.ok(t.posted("b") && t.posted("c"), "entries within the cap keep their posted state");
 });
 
-const WEB_BASE = "https://portal.example.com/web-ui";
 const BOT = "UBOT";
 
 function fakeJoinClient(
@@ -238,22 +235,12 @@ function fakeJoinClient(
   };
 }
 
-test("channelSurfaceUrl builds the project deep link and degrades when unset", () => {
-  assert.equal(channelSurfaceUrl(WEB_BASE, "C123"), `${WEB_BASE}/projects/channel/C123`);
-  assert.equal(channelSurfaceUrl("https://x/web-ui/", "C9"), "https://x/web-ui/projects/channel/C9");
-  assert.equal(channelSurfaceUrl(undefined, "C1"), undefined);
-  assert.equal(channelSurfaceUrl("", "C1"), undefined);
+test("the channel welcome is a plain greeting with no link to a browser surface", () => {
+  assert.ok(CHANNEL_WELCOME_MESSAGE.length > 0);
+  assert.ok(!CHANNEL_WELCOME_MESSAGE.includes("http"));
 });
 
-test("channelWelcomeMessage includes the link when present, omits it cleanly when not", () => {
-  const url = channelSurfaceUrl(WEB_BASE, "C1")!;
-  assert.ok(channelWelcomeMessage(url).includes(url));
-  const linkless = channelWelcomeMessage(undefined);
-  assert.ok(!linkless.includes("http"));
-  assert.ok(linkless.length > 0);
-});
-
-test("onBotJoinedChannel: posts welcome with the deep link and asks the ensurer to pin the header", async () => {
+test("onBotJoinedChannel: posts the welcome and asks the ensurer to pin the header", async () => {
   const { client, calls } = fakeJoinClient();
   let synced = 0;
   const ensured: string[] = [];
@@ -262,16 +249,14 @@ test("onBotJoinedChannel: posts welcome with the deep link and asks the ensurer 
     channel: "C123",
     joinerUserId: BOT,
     botUserId: BOT,
-    webUiPublicUrl: WEB_BASE,
     syncDirectory: async () => {
       synced++;
     },
     ensureHeader: (channel) => ensured.push(channel),
   });
-  const expectedUrl = `${WEB_BASE}/projects/channel/C123`;
   assert.equal(calls.posted.length, 1);
   assert.equal(calls.posted[0]!.channel, "C123");
-  assert.ok(calls.posted[0]!.text.includes(expectedUrl), "welcome message must contain the channel surface deep link");
+  assert.equal(calls.posted[0]!.text, CHANNEL_WELCOME_MESSAGE);
   assert.deepEqual(ensured, ["C123"], "the pinned header is the ensurer's to post, not join's");
   assert.equal(synced, 1, "directory sync must run on bot join");
 });
@@ -284,7 +269,6 @@ test("onBotJoinedChannel: ignores a human joining (only the bot itself triggers 
     channel: "C123",
     joinerUserId: "UHUMAN",
     botUserId: BOT,
-    webUiPublicUrl: WEB_BASE,
     syncDirectory: async () => {
       synced++;
     },
@@ -302,7 +286,6 @@ test("onBotJoinedChannel: an ensureHeader failure is swallowed and never blocks 
       channel: "C123",
       joinerUserId: BOT,
       botUserId: BOT,
-      webUiPublicUrl: WEB_BASE,
       syncDirectory: async () => {
         synced++;
       },
@@ -324,7 +307,6 @@ test("onBotJoinedChannel: a welcome-post failure still runs the directory sync",
       channel: "C123",
       joinerUserId: BOT,
       botUserId: BOT,
-      webUiPublicUrl: WEB_BASE,
       syncDirectory: async () => {
         synced++;
       },
@@ -342,7 +324,6 @@ test("onBotJoinedChannel: stays silent in an externally-shared (Slack Connect) c
     channel: "C123",
     joinerUserId: BOT,
     botUserId: BOT,
-    webUiPublicUrl: WEB_BASE,
     syncDirectory: async () => {
       synced++;
     },
@@ -360,15 +341,13 @@ test("onBotJoinedChannel: welcomes a normal internal channel and hands the pinne
     channel: "C123",
     joinerUserId: BOT,
     botUserId: BOT,
-    webUiPublicUrl: WEB_BASE,
     syncDirectory: async () => {
       synced++;
     },
     ensureHeader: (channel) => ensured.push(channel),
   });
-  const expectedUrl = `${WEB_BASE}/projects/channel/C123`;
   assert.equal(calls.posted.length, 1, "welcome lands on a normal internal channel");
-  assert.ok(calls.posted[0]!.text.includes(expectedUrl), "welcome message contains the project deep link");
+  assert.equal(calls.posted[0]!.text, CHANNEL_WELCOME_MESSAGE);
   assert.deepEqual(ensured, ["C123"], "join triggers exactly one header ensure");
   assert.equal(synced, 1, "directory sync runs");
 });
@@ -568,14 +547,10 @@ test("postWithVerify: threaded post verifies via conversations.replies", async (
   assert.equal(h.historyCalled, false, "threaded verify reads replies, not history");
 });
 
-test("surfaceHeaderText names the model and the project link without branding — degrading gracefully", () => {
-  assert.equal(
-    surfaceHeaderText({ modelName: "Claude Opus 4.8" }, "https://claw.acme.dev/projects/channel/C1"),
-    "Using Claude Opus 4.8 here. <https://claw.acme.dev/projects/channel/C1|More settings>",
-  );
-  assert.equal(surfaceHeaderText({ modelName: "Claude Opus 4.8" }, undefined), "Using Claude Opus 4.8 here.");
-  assert.equal(surfaceHeaderText({}, "https://claw.acme.dev"), "<https://claw.acme.dev|More settings>");
-  assert.equal(surfaceHeaderText({ modelName: "  " }, "  "), undefined);
+test("surfaceHeaderText names the model without branding — degrading gracefully", () => {
+  assert.equal(surfaceHeaderText({ modelName: "Claude Opus 4.8" }), "Using Claude Opus 4.8 here.");
+  assert.equal(surfaceHeaderText({}), undefined);
+  assert.equal(surfaceHeaderText({ modelName: "  " }), undefined);
 });
 
 test("isSurfaceHeaderMessage recognizes only the bot's own header shapes", () => {
@@ -684,7 +659,6 @@ function headerHarness(
   const raw = createSurfaceHeaderEnsurer({
     headerFacts: async () => ({ modelName: model }),
     channelPinEnabled: async () => flags.channelPinEnabled,
-    webUiPublicUrl: "https://claw.acme.dev",
     ids: { botUserId: "U0BOT" },
   });
   const scope = kind === "dm" ? "personal:josh@acme.dev" : "channel:C1";
@@ -701,7 +675,7 @@ test("surface header ensurer writes the header once, then goes quiet", async () 
   h.ensure(h.client, "D1");
   await h.flush();
   assert.equal(h.calls.set, 1);
-  assert.equal(h.read()?.value, "Using Claude Opus 4.8 here. <https://claw.acme.dev/projects/josh|More settings>");
+  assert.equal(h.read()?.value, "Using Claude Opus 4.8 here.");
   h.ensure(h.client, "D1");
   await h.flush();
   assert.equal(h.calls.info, 1, "the settled memo spares a steady-state DM both calls");
@@ -727,7 +701,6 @@ test("surface header ensurer collapses a burst on one channel into a single writ
   const ensure = createSurfaceHeaderEnsurer({
     headerFacts: async () => ({ modelName: "Claude Opus 4.8" }),
     channelPinEnabled: async () => true,
-    webUiPublicUrl: "https://claw.acme.dev",
     ids: { botUserId: "U0BOT" },
   });
   for (let i = 0; i < 5; i++) ensure(client as any, "D1", "personal:user.one@acme.dev", "dm");
@@ -768,7 +741,6 @@ test("a model change during an in-flight ensure is re-run, not dropped", async (
   const ensure = createSurfaceHeaderEnsurer({
     headerFacts: async () => ({ modelName: model }),
     channelPinEnabled: async () => true,
-    webUiPublicUrl: "https://claw.acme.dev",
     ids: { botUserId: "U0BOT" },
   });
   ensure(client as any, "C1", "channel:C1", "channel", { pinNew: true });
@@ -789,7 +761,6 @@ test("surface header ensurer caps its per-channel memo", async () => {
   const ensure = createSurfaceHeaderEnsurer({
     headerFacts: async () => ({ modelName: "Claude Opus 4.8" }),
     channelPinEnabled: async () => true,
-    webUiPublicUrl: "https://claw.acme.dev",
     ids: { botUserId: "U0BOT" },
     maxTracked: 3,
   });
@@ -817,25 +788,16 @@ test("surface header ensurer posts and pins a channel's header message when aske
   h.ensure(h.client, "C1", { pinNew: true });
   await h.flush();
   assert.equal(h.calls.set, 0, "a channel's topic and description are left alone");
-  assert.deepEqual(h.calls.posted, [
-    "Using Claude Opus 4.8 here. <https://claw.acme.dev/projects/channel/C1|More settings>",
-  ]);
+  assert.deepEqual(h.calls.posted, ["Using Claude Opus 4.8 here."]);
   assert.deepEqual(h.calls.pinned, ["99.0"], "the posted header message is pinned");
 });
 
 test("surface header ensurer updates an existing pinned header in place instead of reposting", async () => {
-  const h = headerHarness(
-    undefined,
-    "Claude Haiku 4.5",
-    "channel",
-    "Using Claude Opus 4.8 here. <https://claw.acme.dev/projects/channel/C1|More settings>",
-  );
+  const h = headerHarness(undefined, "Claude Haiku 4.5", "channel", "Using Claude Opus 4.8 here.");
   h.ensure(h.client, "C1");
   await h.flush();
   assert.deepEqual(h.calls.posted, [], "no new message when a pinned header already exists");
-  assert.deepEqual(h.calls.updated, [
-    "Using Claude Haiku 4.5 here. <https://claw.acme.dev/projects/channel/C1|More settings>",
-  ]);
+  assert.deepEqual(h.calls.updated, ["Using Claude Haiku 4.5 here."]);
   assert.equal(h.readPin()?.text.startsWith("Using Claude Haiku 4.5"), true);
 });
 
@@ -865,7 +827,6 @@ test("the pinned header is off by default — join creates nothing until the sco
   };
   const ensure = createSurfaceHeaderEnsurer({
     headerFacts: async () => ({ modelName: "Claude Opus 4.8" }),
-    webUiPublicUrl: "https://claw.acme.dev",
     ids: { botUserId: "U0BOT" },
   });
   ensure(client as any, "C1", "channel:C1", "channel", { pinNew: true });
@@ -874,12 +835,7 @@ test("the pinned header is off by default — join creates nothing until the sco
 });
 
 test("disabling the toggle unpins and deletes the bot's header message", async () => {
-  const h = headerHarness(
-    undefined,
-    "Claude Opus 4.8",
-    "channel",
-    "Using Claude Opus 4.8 here. <https://claw.acme.dev/projects/channel/C1|More settings>",
-  );
+  const h = headerHarness(undefined, "Claude Opus 4.8", "channel", "Using Claude Opus 4.8 here.");
   h.flags.channelPinEnabled = false;
   h.ensure(h.client, "C1");
   await h.flush();
@@ -898,9 +854,7 @@ test("re-enabling the toggle re-creates the pinned header on the next create-fla
   h.flags.channelPinEnabled = true;
   h.ensure(h.client, "C1", { pinNew: true });
   await h.flush();
-  assert.deepEqual(h.calls.posted, [
-    "Using Claude Opus 4.8 here. <https://claw.acme.dev/projects/channel/C1|More settings>",
-  ]);
+  assert.deepEqual(h.calls.posted, ["Using Claude Opus 4.8 here."]);
   assert.deepEqual(h.calls.pinned, ["99.0"]);
 });
 
@@ -953,7 +907,6 @@ test("surface header ensurer writes no channel header where an external member c
     const ensure = createSurfaceHeaderEnsurer({
       headerFacts: async () => ({ modelName: "Claude Opus 4.8" }),
       channelPinEnabled: async () => true,
-      webUiPublicUrl: "https://claw.acme.dev",
       ids: { botUserId: "U0BOT" },
     });
     ensure(client as any, "C1", "channel:C1", "channel", { pinNew: true });
@@ -984,32 +937,11 @@ test("surface header ensurer never edits a pinned message the bot does not own",
   const ensure = createSurfaceHeaderEnsurer({
     headerFacts: async () => ({ modelName: "Claude Opus 4.8" }),
     channelPinEnabled: async () => true,
-    webUiPublicUrl: "https://claw.acme.dev",
     ids: { botUserId: "U0BOT" },
   });
   ensure(client as any, "C1", "channel:C1", "channel");
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(updates, 0, "a message a human pinned is theirs");
-});
-
-test("scopeSurfaceUrl deep-links each context to its own project page", () => {
-  assert.equal(scopeSurfaceUrl("https://claw.acme.dev/", "channel:C1"), "https://claw.acme.dev/projects/channel/C1");
-  assert.equal(
-    scopeSurfaceUrl("https://claw.acme.dev", "personal:user.one@acme.dev"),
-    "https://claw.acme.dev/projects/user.one",
-  );
-  assert.equal(
-    scopeSurfaceUrl("https://claw.acme.dev", "personal:User.Two@acme.dev"),
-    "https://claw.acme.dev/projects/user.two",
-  );
-  assert.equal(
-    scopeSurfaceUrl("https://claw.acme.dev", "personal:unsafe+slug@acme.dev"),
-    "https://claw.acme.dev/contexts?scope=personal%3Aunsafe%2Bslug%40acme.dev",
-  );
-  assert.equal(scopeSurfaceUrl("https://claw.acme.dev", "group:G1"), "https://claw.acme.dev/projects/group/G1");
-  assert.equal(scopeSurfaceUrl("https://claw.acme.dev", "team:T1"), "https://claw.acme.dev/contexts?scope=team%3AT1");
-  assert.equal(scopeSurfaceUrl(undefined, "channel:C1"), undefined);
-  assert.equal(scopeSurfaceUrl("https://claw.acme.dev", ""), undefined);
 });
 
 test("surface header ensurer never clobbers a human-written topic", async () => {
@@ -1025,7 +957,6 @@ test("surface header ensurer swallows a Slack failure instead of surfacing it to
     headerFacts: async () => {
       throw new Error("core unreachable");
     },
-    webUiPublicUrl: "https://claw.acme.dev",
     ids: { botUserId: "U0BOT" },
   });
   assert.doesNotThrow(() => ensure({} as any, "D1", "personal:user.one@acme.dev", "dm"));

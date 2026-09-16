@@ -291,12 +291,11 @@ async function consentMint(ctx: ApiCtx): Promise<void> {
   const base = deps.publicUrl ? deps.publicUrl.replace(/\/$/, "") : "";
   const intendedPrincipalId = personKey(typeof b.intendedPrincipalId === "string" ? b.intendedPrincipalId : "");
   if (intendedPrincipalId && !samePerson(intendedPrincipalId, capability.actorId)) {
-    const selfConnect = deps.portalUrl
-      ? `send them ${deps.portalUrl.replace(/\/$/, "")}/connect/${encodeURIComponent(provider)}/self-connect (no token needed; signing in there is what identifies them)`
-      : "ask them to connect it themselves — a consent link only ever identifies the person who signs in with it";
     return sendJson(res, 400, {
       error: "bad_request",
-      message: `consent links are only mintable for yourself — to get someone else connected, ${selfConnect}`,
+      message:
+        "consent links are only mintable for yourself — to get someone else connected, ask them to connect it " +
+        "themselves — a consent link only ever identifies the person who signs in with it",
     });
   }
   let redirectUri = "";
@@ -326,8 +325,7 @@ async function consentMint(ctx: ApiCtx): Promise<void> {
       message: "set PUBLIC_WEB_URL, or supply a redirectUri registered in the client's redirect allowlist",
     });
   }
-  const returnTo =
-    safeReturnTo(typeof b.returnTo === "string" ? b.returnTo : null) ?? (deps.portalUrl ? "/connectors" : undefined);
+  const returnTo = safeReturnTo(typeof b.returnTo === "string" ? b.returnTo : null);
   const { linkId } = await deps.consentLinks.mint({
     principalId: capability.actorId,
     orgId: configOrgId(),

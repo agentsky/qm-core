@@ -2,7 +2,6 @@ import { createMemoryEventBus } from "./util/event-bus.ts";
 import { createPostgresNotifyBus } from "./persistence/postgres-notify-bus.ts";
 import { emitRunText, type RunStreamEvent } from "./runs/run-stream-events.ts";
 import { createGatewayCatalog } from "./model/gateway-catalog.ts";
-import { createSuggestedActivityService, type SuggestedActivityProfile } from "./suggestions/activities.ts";
 import { createRuntimeService } from "./harness/runtime-control.ts";
 import { createDirectFileUploads, type DirectFileUploads } from "./files/direct-file-upload.ts";
 import { createPostgresFileUploadStore } from "./files/file-upload-store.ts";
@@ -119,7 +118,6 @@ import type { LoopServiceDeps } from "./api/routes/loops.ts";
 import { createDeliveryStore, type DeliveryStore } from "./delivery/delivery-store.ts";
 import { createPostgresDeliveryStore } from "./delivery/postgres-delivery-store.ts";
 import { wireRunResultDeliveries } from "./delivery/run-result-delivery.ts";
-import { adminSessionUrl } from "./util/admin-links.ts";
 import { withWebTranscriptDeliveries } from "./delivery/web-transcript-delivery.ts";
 import { createDirectoryStore, type DirectoryStore } from "./directory/directory-store.ts";
 import { createPostgresDirectoryStore } from "./directory/postgres-directory-store.ts";
@@ -388,8 +386,6 @@ export function stopWithBackstop(
 }
 
 export interface BuiltApp {
-  suggestedActivityMaintenance: Sweeper;
-  suggestedActivities?: ReturnType<typeof createSuggestedActivityService>;
   app: App;
   screenSecurity?: SecurityScreenProbe;
   deploymentLayer: DeploymentLayerRuntime;
@@ -1535,7 +1531,6 @@ export function buildApp(
     isCurrentSharedScopeMember,
     managedGroups: projects,
     ...(config.reachExecEnabled ? { reachExec: true } : {}),
-    ...(config.surfaceDebugFooter ? { surfaceDebugFooter: true } : {}),
     ...(config.eagerProvisionEnabled ? { eagerProvision: true } : {}),
     environments,
     credentialTools,
@@ -1543,13 +1538,7 @@ export function buildApp(
   };
   const orchestrator = createOrchestrator(orchestratorDeps);
 
-  const uuidId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const recoveryAdminBase = config.publicWebUrl?.replace(/\/$/, "");
-  const recoveryAdminUrlFor = recoveryAdminBase
-    ? (sessionId: string): string | undefined =>
-        uuidId.test(sessionId) ? adminSessionUrl(recoveryAdminBase, sessionId) : undefined
-    : undefined;
-  wireRunResultDeliveries(runs, deliveries, tasks, recoveryAdminUrlFor, sessions);
+  wireRunResultDeliveries(runs, deliveries, tasks, sessions);
   const idempotency = createIdempotencyStore(artifactMap<IdempotencyRecord>("idempotency"));
   const skillFetcher = createGitFetcher(
     keychain
@@ -1883,19 +1872,6 @@ export function buildApp(
       await Promise.all([sweepAsks?.(now), loopFire.sweepStale(now)]);
     },
   });
-  const suggestedActivities = createSuggestedActivityService({
-    store: artifactMap<SuggestedActivityProfile>("suggested_activity_profiles"),
-    sessions,
-    crons,
-    scheduler,
-    enabled: config.suggestedActivitiesEnabled === true,
-    ...(config.suggestedActivitiesContext ? { context: config.suggestedActivitiesContext } : {}),
-  });
-  const suggestedActivityMaintenance = createSweeper(
-    () => leaderLease.hold("suggested-activities:maintenance", () => suggestedActivities.maintain()),
-    60 * 60_000,
-    { label: "suggested-activities", immediate: true },
-  );
   cronChanged.notify = (id) => scheduler.notifyChanged(id);
   orchestratorDeps.control = createControlService(app, scheduler, admin);
   orchestratorDeps.runtime = createRuntimeService(
@@ -2141,8 +2117,6 @@ export function buildApp(
     ...(ambientJudgments ? { ambientJudgments } : {}),
     ...(ackEmojiPicks ? { ackEmojiPicks } : {}),
     channelPolicy,
-    ...(config.suggestedActivitiesEnabled && config.backgroundWorkEnabled ? { suggestedActivities } : {}),
-    suggestedActivityMaintenance,
     uiState: artifactMap<PersistedUiState>("web_ui_state"),
     sessionShares: artifactMap<SessionShare>("session_shares"),
     sessionShareBytes:
@@ -2259,7 +2233,6 @@ export function serverDeps(
     ...(built.ambientJudgments ? { ambientJudgments: built.ambientJudgments } : {}),
     ...(built.ackEmojiPicks ? { ackEmojiPicks: built.ackEmojiPicks } : {}),
     channelPolicy: built.channelPolicy,
-    ...(built.suggestedActivities ? { suggestedActivities: built.suggestedActivities } : {}),
     uiState: built.uiState,
     ...(built.keychain ? { loopSourceTokens: built.keychain } : {}),
     loopSlackClient: slackUserClientFactory(config.slack?.apiUrl),

@@ -32,13 +32,7 @@ function webTranscriptNote(run: Run, surface: string, failed: boolean): Destinat
   return recoveredReply ? { kind: "reply" } : undefined;
 }
 
-export type AdminUrlFor = (sessionId: string) => string | undefined;
-
-export function runResultDelivery(
-  run: Run,
-  taskList: Task[] = [],
-  adminUrlFor?: AdminUrlFor,
-): RunResultDelivery | null {
+export function runResultDelivery(run: Run, taskList: Task[] = []): RunResultDelivery | null {
   if (run.request.swarm) return null;
   const target = run.request.deliveryTarget;
   const surface = run.request.surface;
@@ -79,9 +73,7 @@ export function runResultDelivery(
   if (failed) {
     if (origin.kind === "ambient") return null;
     const clause = userFacingFailureClause(run.result ?? { status: "failed" });
-    const adminUrl = run.result?.sessionId ? adminUrlFor?.(run.result.sessionId) : undefined;
-    const detail = adminUrl ? ` — full error: ${adminUrl}` : "";
-    return { destination, text: `⚠️ I couldn't finish that turn: ${clause}${detail}`, provenance, idempotencyKey };
+    return { destination, text: `⚠️ I couldn't finish that turn: ${clause}`, provenance, idempotencyKey };
   }
   if (run.result?.status === "ok" && (run.result.reply || run.result.attachments?.length)) {
     return {
@@ -135,7 +127,6 @@ export function wireRunResultDeliveries(
   runs: RunStore,
   deliveries: DeliveryStore,
   tasks?: TaskStore,
-  adminUrlFor?: AdminUrlFor,
   sessions?: TurnFailureSessions,
 ): void {
   runs.onTerminal((run) => {
@@ -146,7 +137,7 @@ export function wireRunResultDeliveries(
     }
     void (async () => {
       const taskList = tasks ? await tasks.list({ originRunId: run.id }) : [];
-      const delivery = runResultDelivery(run, taskList, adminUrlFor);
+      const delivery = runResultDelivery(run, taskList);
       if (!delivery) return;
       await deliveries.enqueue(delivery);
     })().catch((err) =>

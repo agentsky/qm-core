@@ -43,8 +43,6 @@ import { resolveSwarmSettings, type SwarmSettings } from "./swarms/swarm-setting
 
 export interface Config {
   slackContextSource?: SlackContextSource;
-  suggestedActivitiesEnabled?: boolean;
-  suggestedActivitiesContext?: string;
   swarmDefaults?: SwarmSettings;
   production: boolean;
   allowUnauthenticatedCore: boolean;
@@ -175,7 +173,6 @@ export interface Config {
   scratchExecEnabled: boolean;
   reachExecEnabled: boolean;
   sharedOwnerAuthIsolation: boolean;
-  surfaceDebugFooter: boolean;
   eagerProvisionEnabled: boolean;
   localSandbox: LocalSandboxEnv;
   smolmachinesSandbox: SmolmachinesSandboxEnv;
@@ -914,10 +911,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
   const memoryProviderConfig = parseMemoryProviderConfig(env.MEMORY_PROVIDER_CONFIG, env);
   return {
-    suggestedActivitiesEnabled: boolEnvStrict("SUGGESTED_ACTIVITIES_ENABLED", env.SUGGESTED_ACTIVITIES_ENABLED) ?? true,
-    ...(env.SUGGESTED_ACTIVITIES_CONTEXT
-      ? { suggestedActivitiesContext: env.SUGGESTED_ACTIVITIES_CONTEXT.slice(0, 8000) }
-      : {}),
     production: env.NODE_ENV === "production",
     allowUnauthenticatedCore: boolEnvStrict("ALLOW_UNAUTHENTICATED_CORE", env.ALLOW_UNAUTHENTICATED_CORE) ?? false,
     port: numEnvStrict("PORT", env.PORT) ?? CONFIG_DEFAULTS.port,
@@ -1106,7 +1099,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     scratchExecEnabled: boolEnvStrict("EXECUTE_SCRATCH", env.EXECUTE_SCRATCH) ?? false,
     reachExecEnabled: boolEnvStrict("REACH_EXEC", env.REACH_EXEC) ?? false,
     sharedOwnerAuthIsolation: boolEnvStrict("SHARED_OWNER_AUTH_ISOLATION", env.SHARED_OWNER_AUTH_ISOLATION) ?? false,
-    surfaceDebugFooter: boolEnvStrict("SURFACE_DEBUG_FOOTER", env.SURFACE_DEBUG_FOOTER) ?? false,
     eagerProvisionEnabled: boolEnvStrict("EAGER_PROVISION", env.EAGER_PROVISION) ?? true,
     localSandbox: localSandboxEnv(env),
     smolmachinesSandbox: smolmachinesSandboxEnv(env),

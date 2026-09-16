@@ -601,13 +601,6 @@ test("sandbox resource rollout requires explicit activation", () => {
   );
 });
 
-test("suggestion generation defaults on and can be explicitly disabled", () => {
-  assert.equal(loadConfig({}).suggestedActivitiesEnabled, true);
-  assert.equal(loadConfig({ SUGGESTED_ACTIVITIES_ENABLED: "true" }).suggestedActivitiesEnabled, true);
-  assert.equal(loadConfig({ SUGGESTED_ACTIVITIES_ENABLED: "false" }).suggestedActivitiesEnabled, false);
-  assert.throws(() => loadConfig({ SUGGESTED_ACTIVITIES_ENABLED: "maybe" }));
-});
-
 test("sandbox scope defaults parse exact scope kinds and reject malformed mappings", () => {
   const credentials = {
     SMOLMACHINES_TOKEN: "unit-test-smolmachines",

@@ -26,11 +26,8 @@ interface CustomProviderStatus extends CustomProviderSpec {
 }
 
 export interface CustomProviderStore {
-  /** Enabled specs only — what the runtime registry should serve. */
   enabled(): Promise<CustomProviderSpec[]>;
-  /** Everything, for the admin surface (no secrets). */
   statuses(): Promise<CustomProviderStatus[]>;
-  /** Plaintext key for one provider, or null when absent/disabled. */
   resolveKey(id: string): Promise<string | null>;
   upsert(spec: CustomProviderSpec, apiKey: string | undefined, updatedBy: string): Promise<void>;
   delete(id: string, updatedBy: string): Promise<boolean>;

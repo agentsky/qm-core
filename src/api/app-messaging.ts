@@ -4,7 +4,6 @@ import { parseScopeId, scopeId } from "../types.ts";
 import { personKey, personKeys, samePersonInDirectory, samePersonMatcher } from "../directory/person.ts";
 import type { Destination, SurfaceContextRequest, SurfaceContextResult } from "../types.ts";
 import { errMessage } from "../util/errors.ts";
-import { adminCronHistoryUrl } from "../util/admin-links.ts";
 import { createMemoryMap } from "../persistence/durable-map.ts";
 import { randomUUID } from "node:crypto";
 import {
@@ -85,14 +84,13 @@ export function createMessagingMethods(
   | "directoryMember"
   | "samePerson"
   | "personMatcher"
-  | "cronAdminUrl"
   | "channelName"
   | "ambientJudge"
   | "recordPrincipalDelivery"
   | "reachNow"
   | "resolveReachTarget"
 > {
-  const { adminBase, projectsForViewer, resolveReachTargetFor } = h;
+  const { projectsForViewer, resolveReachTargetFor } = h;
   const { judgeAmbientContainer, ambientSelf } = ambient;
   const contextRequests = deps.contextRequests ?? createMemoryMap<SurfaceContextRequest>();
   const contextRequestListeners = new Set<(request: SurfaceContextRequest) => void>();
@@ -509,9 +507,6 @@ export function createMessagingMethods(
     },
     personMatcher(actorId) {
       return samePersonMatcher(deps.directory, actorId);
-    },
-    cronAdminUrl(cron) {
-      return adminBase ? adminCronHistoryUrl(adminBase, cron.ownerScopeId, cron.id) : undefined;
     },
     async channelName(channelId) {
       const chan = (await deps.directory.listChannels()).find((c) => c.channelId === channelId);

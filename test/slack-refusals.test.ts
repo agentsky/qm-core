@@ -3,33 +3,28 @@ import assert from "node:assert/strict";
 import { refusalNote, refusalDelivery, postThenAckRunDelivery, isBoundaryRefusal } from "../src/slack/lib.ts";
 import { SESSION_BUSY_USER_TEXT } from "../src/core/failure-copy.ts";
 
-const ADMIN_URL = "https://portal.example.com/admin/?view=history&session=s-1";
-
-test("refusalNote: a failure renders the core-supplied admin link and drops the misleading DM/internal steer", () => {
-  const note = refusalNote({ reason: "An unknown error occurred", adminUrl: ADMIN_URL }, "channel");
+test("refusalNote: a failure states the reason and drops the misleading DM/internal steer", () => {
+  const note = refusalNote({ reason: "An unknown error occurred" }, "channel");
   assert.match(note, /An unknown error occurred/);
-  assert.match(note, /Full error: https:\/\/portal\.example\.com\/admin\/\?view=history&session=s-1/);
+  assert.doesNotMatch(note, /https?:\/\//, "no link to a surface that no longer exists");
   assert.doesNotMatch(note, /fully-internal/, "a turn error is not a boundary refusal — no internal-channel advice");
 });
 
-test("refusalNote: a boundary (internal-only) refusal keeps the DM/internal steer and never links", () => {
-  const note = refusalNote(
-    { reason: "internal-only: shared audience includes a non-internal participant", adminUrl: ADMIN_URL },
-    "channel",
-  );
+test("refusalNote: a boundary (internal-only) refusal keeps the DM/internal steer", () => {
+  const note = refusalNote({ reason: "internal-only: shared audience includes a non-internal participant" }, "channel");
   assert.match(note, /fully-internal channel/);
-  assert.doesNotMatch(note, /Full error/, "boundary refusals have nothing to debug in admin");
+  assert.doesNotMatch(note, /https?:\/\//);
 });
 
-test("refusalNote: no adminUrl ⇒ reason only, no dangling link", () => {
+test("refusalNote: a denied approval reads as the reason alone", () => {
   const note = refusalNote({ reason: "approval denied for git push" }, "dm");
   assert.match(note, /approval denied for git push/);
-  assert.doesNotMatch(note, /Full error/);
+  assert.doesNotMatch(note, /https?:\/\//);
 });
 
 test("refusalNote: a busy session reads as a human note, with no error framing and no link", () => {
   const note = refusalNote(
-    { status: "refused", refusalKind: "session_busy", reason: SESSION_BUSY_USER_TEXT, adminUrl: ADMIN_URL },
+    { status: "refused", refusalKind: "session_busy", reason: SESSION_BUSY_USER_TEXT },
     "channel",
   );
   assert.equal(note, SESSION_BUSY_USER_TEXT);
@@ -37,14 +32,11 @@ test("refusalNote: a busy session reads as a human note, with no error framing a
   assert.doesNotMatch(note, /error/i);
 });
 
-test("refusalNote: a failed turn hides the internal reason but keeps the admin link", () => {
-  const note = refusalNote(
-    { status: "failed", reason: "TypeError: fetch failed at sandbox.ts:42", adminUrl: ADMIN_URL },
-    "dm",
-  );
+test("refusalNote: a failed turn hides the internal reason", () => {
+  const note = refusalNote({ status: "failed", reason: "TypeError: fetch failed at sandbox.ts:42" }, "dm");
   assert.doesNotMatch(note, /TypeError|sandbox\.ts/);
   assert.match(note, /something went wrong on my end/);
-  assert.match(note, /Full error: https:/);
+  assert.doesNotMatch(note, /https?:\/\//);
 });
 
 test("refusalNote: a security quarantine is human-safe and hides the internal reason", () => {
@@ -52,7 +44,6 @@ test("refusalNote: a security quarantine is human-safe and hides the internal re
     {
       refusalKind: "security_quarantine",
       reason: "Auto quarantined suspicious or unscreenable external input before the agent ran.",
-      adminUrl: ADMIN_URL,
     },
     "channel",
   );
@@ -61,7 +52,7 @@ test("refusalNote: a security quarantine is human-safe and hides the internal re
     note,
     "I couldn't act because my security screen flagged part of this message or its conversation context. Please retry without the flagged context, or ask an admin to review the quarantine.",
   );
-  assert.doesNotMatch(note, /Auto quarantined|unscreenable|Full error/);
+  assert.doesNotMatch(note, /Auto quarantined|unscreenable/);
 });
 
 test("refusalDelivery: quarantine posts in-thread only when addressed; every unprompted refusal stays silent", () => {

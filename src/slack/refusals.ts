@@ -28,7 +28,7 @@ export async function postThenAckRunDelivery(opts: {
 }
 
 export function refusalNote(
-  result: { status?: string; reason?: string; adminUrl?: string; refusalKind?: TurnResult["refusalKind"] },
+  result: { status?: string; reason?: string; refusalKind?: TurnResult["refusalKind"] },
   kind: "dm" | "channel",
 ): string {
   const standalone = standaloneFailureText(result);
@@ -40,8 +40,7 @@ export function refusalNote(
       : `I can't respond here — ${reason}. Try a DM or a fully-internal channel.`;
   }
   const clause = userFacingFailureClause(result);
-  const detail = result.adminUrl ? ` Full error: ${result.adminUrl}` : "";
   return kind === "dm"
-    ? `I hit an error and couldn't finish — ${clause}.${detail}`
-    : `I hit an error and couldn't finish — ${clause}.${detail} Try again, or DM me.`;
+    ? `I hit an error and couldn't finish — ${clause}.`
+    : `I hit an error and couldn't finish — ${clause}. Try again, or DM me.`;
 }

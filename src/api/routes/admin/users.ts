@@ -19,8 +19,8 @@ import { FILES_PAGE_SIZE } from "./common.ts";
 
 const USER_CONVERSATIONS_MAX = 100;
 const USER_FILES_MAX = 200;
-const EXTERNAL_ORG_ADMIN_PORTAL_ONLY =
-  "granting or removing org admin for an external user is portal-only — the agent cannot manage who governs the org";
+const EXTERNAL_ORG_ADMIN_OPERATOR_ONLY =
+  "granting or removing org admin for an external user is operator-only — the agent cannot manage who governs the org";
 const ALREADY_A_MEMBER =
   "that address already belongs to a member of the org — manage them under Users and Admins, not as an external user";
 const HOLDS_OWN_GRANT =
@@ -99,7 +99,7 @@ export async function inviteExternalUser(ctx: ApiCtx): Promise<void> {
   if ((!existing && holdsGrant) || (await orgMember(ctx, email, !existing)))
     return sendJson(res, 409, { error: "conflict", message: ALREADY_A_MEMBER });
   if (ctx.capability && (role === "org_admin" || ownsGrant || holdsGrant)) {
-    return sendJson(res, 403, { error: "forbidden", message: EXTERNAL_ORG_ADMIN_PORTAL_ONLY });
+    return sendJson(res, 403, { error: "forbidden", message: EXTERNAL_ORG_ADMIN_OPERATOR_ONLY });
   }
   if (role === "member" && holdsGrant && !ownsGrant)
     return sendJson(res, 409, { error: "conflict", message: HOLDS_OWN_GRANT });
@@ -138,7 +138,7 @@ export async function inviteExternalUser(ctx: ApiCtx): Promise<void> {
   if (created || readmitted || b.resendInvite === true) {
     if (!deps.inviteMailer) emailProblem = INVITE_EMAIL_NOT_CONFIGURED;
     else if (!signInUrl)
-      emailProblem = "no sign-in URL is configured on core (set PUBLIC_WEB_URL) — share the portal address by hand";
+      emailProblem = "no sign-in URL is configured on core (set PUBLIC_WEB_URL) — share the sign-in address by hand";
     else {
       const branding = await resolveBranding(deps.config, scope, deps.brandingDefault);
       try {
@@ -180,7 +180,7 @@ export async function revokeExternalUser(ctx: ApiCtx): Promise<void> {
   const holdsGrant = adminStatusFromGrants(await deps.admin!.listGrants(), existing.email).isAdmin;
   const ownsGrant = existing.role === "org_admin";
   if (ctx.capability && (ownsGrant || holdsGrant)) {
-    return sendJson(res, 403, { error: "forbidden", message: EXTERNAL_ORG_ADMIN_PORTAL_ONLY });
+    return sendJson(res, 403, { error: "forbidden", message: EXTERNAL_ORG_ADMIN_OPERATOR_ONLY });
   }
   if (holdsGrant && !ownsGrant) return sendJson(res, 409, { error: "conflict", message: HOLDS_OWN_GRANT });
   if (holdsGrant) {

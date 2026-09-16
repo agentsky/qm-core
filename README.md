@@ -28,8 +28,8 @@ isn't tied to any single vendor.
 
 - **Personal and shared scopes.** People customize the agent to be _theirs_, and still
   work with it collaboratively in Slack channels and projects.
-- **Slack and web.** The same identity and configuration carries between Slack and the
-  web app.
+- **Slack and API.** The same identity and configuration carries between Slack and the
+  signed HTTP API.
 - **Admin control.** Set org-level configuration, security and sharing postures, and which
   harnesses and models are available.
 - **Web apps.** Spin up custom internal apps and publish them to the right people.

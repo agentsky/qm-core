@@ -742,7 +742,7 @@ const FAMILIES: AgentApiFamily[] = [
     match: (_m, p) => p.startsWith("/v1/admin/"),
     when: (v) => v.isAdmin && livePersonCapability(v.claims),
     guidance:
-      "Admin plane: you act AS this org admin — live-authorized per call, audited under their name; confirm before any mutation (bodies/params in the admin skill). Enforced limits: content reads work only from a DM with the admin; bulk config imports also require a DM; other mutations work anywhere; admin grant changes are portal-only and refuse agent tokens.",
+      "Admin plane: you act AS this org admin — live-authorized per call, audited under their name; confirm before any mutation (bodies/params in the admin skill). Enforced limits: content reads work only from a DM with the admin; bulk config imports also require a DM; other mutations work anywhere; admin grant changes are operator-only (ADMIN_GRANTS in the deployment) and refuse agent tokens.",
     routes: [
       { method: "GET", path: "/v1/admin/whoami", summary: "this user's admin status" },
       {
@@ -805,13 +805,13 @@ const FAMILIES: AgentApiFamily[] = [
         method: "POST",
         path: "/v1/admin/external-users",
         summary:
-          "invite an outside collaborator by email — {email, role?: member|org_admin, expiresAt (ISO date-time, a bare YYYY-MM-DD meaning end of that day UTC, or epoch ms)}; they sign in with that address until expiry; 409 if the address already belongs to an org member (org email domain, Slack directory, sign-in allow-list, or anyone who has used the agent). The invitation email needs Resend on core (RESEND_API_KEY + AUTH_EMAIL_FROM); when the response says emailSent:false, relay emailProblem and hand the user signInUrl to share. org_admin role is portal-only",
+          "invite an outside collaborator by email — {email, role?: member|org_admin, expiresAt (ISO date-time, a bare YYYY-MM-DD meaning end of that day UTC, or epoch ms)}; they sign in with that address until expiry; 409 if the address already belongs to an org member (org email domain, Slack directory, sign-in allow-list, or anyone who has used the agent). The invitation email needs Resend on core (RESEND_API_KEY + AUTH_EMAIL_FROM); when the response says emailSent:false, relay emailProblem and hand the user signInUrl to share. org_admin role is operator-only",
       },
       {
         method: "DELETE",
         path: "/v1/admin/external-users/:email",
         summary:
-          "revoke an external user's access now — they stay listed as expired, and a DELETE a day after expiry removes the row (externals holding org_admin: portal-only)",
+          "revoke an external user's access now — they stay listed as expired, and a DELETE a day after expiry removes the row (externals holding org_admin: operator-only)",
       },
       {
         method: "GET",

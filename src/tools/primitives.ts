@@ -660,7 +660,7 @@ export function createToolContext(deps: ToolContextDeps): ToolContext {
         throw new Error(
           errMessage(err).replace(
             "Migrate with force to accept the loss.",
-            "An operator can force this from the admin console.",
+            "An operator can force this through the signed admin API.",
           ),
           { cause: err },
         );

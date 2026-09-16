@@ -341,7 +341,7 @@ test("migrateComputer rewords the operator-only force refusal and audits failure
     authorizeCommand: () => true,
     auditLog: { record: (e: { action: string }) => audited.push(e.action) } as never,
   });
-  await assert.rejects(ctx.migrateComputer("agent37"), /An operator can force this from the admin console\./);
+  await assert.rejects(ctx.migrateComputer("agent37"), /An operator can force this through the signed admin API\./);
   await assert.rejects(ctx.migrateComputer("agent37"), (e: Error) => !/Migrate with force/.test(e.message));
   assert.deepEqual(audited, ["sandbox_routes.migrate_failed", "sandbox_routes.migrate_failed"]);
 });

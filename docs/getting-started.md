@@ -44,7 +44,7 @@ secretEnv:
   PORTAL_IDENTITY_SECRET: <random 32+ bytes>
   CONNECTOR_SECRET_KEY: <random 32+ bytes>
   SKILL_SIGNING_SECRET: <random 32+ bytes>
-  ADMIN_GRANTS: you@example.com
+  ADMIN_GRANTS: you@example.com:org_admin
   SANDBOX_BACKEND: local
 ```
 
@@ -71,6 +71,17 @@ in.
 
 `AUTH_ALLOWED_EMAILS` still says who may be invited, and `AUTH_EMAIL_FROM` with
 `RESEND_API_KEY` lets admins email those invitations; neither authenticates anyone.
+
+The first org admin comes from the operator, not from inside the product: set
+`ADMIN_GRANTS` in `secretEnv` to a comma-separated list of `<principal>:org_admin`
+entries — `you@example.com:org_admin,ops@example.com:org_admin`. `org_admin` is the only
+role accepted; entries naming any other role are ignored. It is a one-time seed: core
+writes it only when the grant table is still empty, so editing it later changes nothing
+on an org that already has an admin. From then on grants are changed through the signed
+admin API (`POST`/`DELETE /v1/admin/grants`) as an authenticated admin. With a durable
+store (`DATABASE_URL`) and `ADMIN_GRANTS` unset, the org boots with no admin at all and
+nothing inside the product can promote one. Grant changes and impersonation are
+operator-only either way: both refuse agent tokens, so QM cannot make them on request.
 
 Connector OAuth clients and the optional Slack bot token pair are set through core's
 authenticated admin API. They are encrypted in durable storage and never belong in a

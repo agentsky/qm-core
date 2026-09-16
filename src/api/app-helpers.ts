@@ -29,7 +29,6 @@ import { samePerson } from "../directory/person.ts";
 import { actorAssertionActive } from "../identity/identity-service.ts";
 import type { Deployment } from "../deploy/deploy-store.ts";
 import { swallow } from "../util/errors.ts";
-import { adminSessionUrl } from "../util/admin-links.ts";
 import {
   openGroupViaSurface,
   resolveReachTarget,
@@ -51,10 +50,6 @@ import type { App, AppDeps, ContextSummary, ProjectView, FileListPage } from "./
 import { toFileItem } from "./app-types.ts";
 
 export function createAppHelpers(deps: AppDeps, app: App) {
-  const adminBase = deps.publicWebUrl?.replace(/\/$/, "");
-  const adminLink = (sessionId: string): string | undefined =>
-    adminBase ? adminSessionUrl(adminBase, sessionId) : undefined;
-
   const surfaceContext = createSurfaceContextPuller(app);
   const directoryRefresher = createSurfaceContextPuller(app, { waitMs: 4_000 });
 
@@ -77,15 +72,14 @@ export function createAppHelpers(deps: AppDeps, app: App) {
     opts?: ReachOpts,
   ): Promise<ReachResolution> => resolveReachTarget(reachDir, target, authorityId, opts);
 
-  async function withAdminLink(result: TurnResult): Promise<TurnResult> {
+  async function withResolvedSessionId(result: TurnResult): Promise<TurnResult> {
     if (!result.sessionId) return result;
     const byThread = await deps.sessions.getByThread(result.sessionId);
     let sessionId: string | undefined;
     if (byThread) sessionId = byThread.id;
     else if (await deps.sessions.get(result.sessionId)) sessionId = result.sessionId;
     if (!sessionId) return { ...result, sessionId: undefined };
-    const adminUrl = adminLink(sessionId);
-    return { ...result, sessionId, ...(adminUrl ? { adminUrl } : {}) };
+    return { ...result, sessionId };
   }
 
   async function approvalCurrentForSession(session: Session, record: PendingApprovalRecord): Promise<boolean> {
@@ -206,13 +200,13 @@ export function createAppHelpers(deps: AppDeps, app: App) {
       const run = await deps.runs.get(runId);
       if (!run) throw new Error(`run ${runId} not found`);
       if (isTerminal(run.status)) {
-        return withAdminLink(
+        return withResolvedSessionId(
           run.result ?? { status: "failed", sessionId: run.sessionId, reason: "run produced no result" },
         );
       }
       const claimed = await deps.runs.claimById(runId, "inline", deps.leaseTtlMs);
       if (claimed) {
-        return withAdminLink(
+        return withResolvedSessionId(
           await processRun({ runs: deps.runs, orchestrator: deps.orchestrator, leaseTtlMs: deps.leaseTtlMs }, claimed),
         );
       }
@@ -637,10 +631,8 @@ export function createAppHelpers(deps: AppDeps, app: App) {
   }
 
   return {
-    adminBase,
-    adminLink,
     directoryMember: (principalId: string) => app.directoryMember(principalId),
-    withAdminLink,
+    withResolvedSessionId,
     resolveReachTargetFor,
     approvalRecordIsCurrent,
     approvalResumable,

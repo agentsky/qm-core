@@ -193,7 +193,6 @@ export interface OrchestratorDeps {
   surfaceCache?: SurfaceCache;
   slackContextSource?: "live" | "shadow" | "mirror";
   channelPolicy?: ChannelPolicyStore;
-  surfaceDebugFooter?: boolean;
 }
 
 export interface SurfaceContextPuller {

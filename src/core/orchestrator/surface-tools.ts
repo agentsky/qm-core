@@ -31,7 +31,6 @@ import { collectNamedOutbound, type ArtifactRegistration } from "../attachments.
 import { parseBotLedger, type BotPolicy } from "../../surface-cache/channel-policy-store.ts";
 import { isoFromTs } from "../../util/message-tag.ts";
 import { errMessage } from "../../util/errors.ts";
-import { adminSessionUrl } from "../../util/admin-links.ts";
 import { headLooksLikeText, replaceThreadSegment, type TurnPostKeys } from "./turn-helpers.ts";
 import type { OrchestratorDeps, OrchestratorInput } from "./types.ts";
 
@@ -173,12 +172,6 @@ export function createSurfaceToolDeps(ctx: SurfaceToolsContext): SurfaceToolDeps
       return { ok: false, message: errMessage(e) };
     }
   };
-  const buildDebugFooter = (): string | undefined => {
-    if (!deps.surfaceDebugFooter || !deps.publicWebUrl) return undefined;
-    const base = adminSessionUrl(deps.publicWebUrl, session.id);
-    const contextUrl = spine.turnUserEntrySeq !== undefined ? `${base}?turn=${spine.turnUserEntrySeq}` : base;
-    return `<${base}|session>   <${contextUrl}|context>`;
-  };
   let coverageChecked = false;
   let coverageSince: string | undefined;
   const coverageForTurn = async (): Promise<string | undefined> => {
@@ -224,7 +217,6 @@ export function createSurfaceToolDeps(ctx: SurfaceToolsContext): SurfaceToolDeps
       }
       const f = await resolveFiles(files);
       if (!f.ok) return { ok: false, message: f.message };
-      const footer = buildDebugFooter();
       const run = input.runId ? await deps.runs?.get(input.runId) : null;
       const taskList = input.runId ? await deps.tasks?.list({ originRunId: input.runId }) : undefined;
       const editRef =
@@ -234,7 +226,6 @@ export function createSurfaceToolDeps(ctx: SurfaceToolsContext): SurfaceToolDeps
         ...destination,
         ...(editRef ? { editRef } : {}),
         ...(taskList?.length ? { taskList: taskList.map(({ id, title, status }) => ({ id, title, status })) } : {}),
-        ...(footer ? { debugFooter: footer } : {}),
       };
       const sent = await enqueue(projectedDestination, postText, seq, f.attachments);
       return sent.ok && f.attachments?.length ? { ...sent, attachments: postedFileMetas(f.attachments) } : sent;
@@ -382,11 +373,8 @@ export function createSurfaceToolDeps(ctx: SurfaceToolsContext): SurfaceToolDeps
             ok: false,
             message:
               "[live search runs as the asking person's own Slack login, and this turn has no connected one — " +
-              "if a person asked, ask them to connect their own Slack" +
-              (deps.publicWebUrl
-                ? ` at ${deps.publicWebUrl.replace(/\/$/, "")}/connect/slack/self-connect (signing in there identifies them; no link needs minting)`
-                : " (only they can; no link needs minting)") +
-              ", instead of concluding the message doesn't exist; " +
+              "if a person asked, ask them to connect their own Slack (only they can; no link needs minting), " +
+              "instead of concluding the message doesn't exist; " +
               "on an autonomous turn just say what you couldn't search]",
           };
         if (result.note && !result.messages?.length) return { ok: false, message: result.note };

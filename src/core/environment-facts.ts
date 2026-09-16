@@ -66,7 +66,6 @@ export function renderResidentLoginsBlock(
 export function renderConnectedAppsBlock(
   record: ConnectorStatusRecord | null,
   availableProviders: readonly string[] = [],
-  connectionsUrl?: string,
 ): string {
   const allowed = new Set(availableProviders);
   const entries = Object.entries(record?.providers ?? {}).filter(([name]) => allowed.has(name));
@@ -91,7 +90,6 @@ export function renderConnectedAppsBlock(
   } else {
     lines.push("Only offer direct OAuth consent links for the admin-configured list below.");
   }
-  if (connectionsUrl) lines.push(`Connection page: ${connectionsUrl}`);
   if (connected.length) {
     lines.push(`Connected: ${connected.join(", ")}. Use them directly; their auth is wired.`);
   }

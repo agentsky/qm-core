@@ -21,7 +21,7 @@ if [ -z "$token" ]; then
     echo "x-api: no X auth available for --as=$as. Auth methods present:"
     [ -n "$org_token" ] && echo "  --as=org  org-level app token — broad reads, higher rate limits"
     [ -n "$user_token" ] && echo "  --as=me   your connected X account — acts as you (needed to post as yourself)"
-    [ -z "${org_token}${user_token}" ] && echo "  (none) — connect your X account in the web UI, or set resident X auth (X_BEARER_TOKEN / X_ACCESS_TOKEN)"
+    [ -z "${org_token}${user_token}" ] && echo "  (none) — ask QM to connect your X account, or set resident X auth (X_BEARER_TOKEN / X_ACCESS_TOKEN)"
   } >&2
   exit 2
 fi

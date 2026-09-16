@@ -4,8 +4,7 @@ import { createSlackRateLimitNotice } from "../src/slack/rate-limit-notice.ts";
 import { slackAccountConfigsFromEnv, slackPluginConfigFromEnv } from "../src/slack/config.ts";
 
 const rateLimit = { code: "slack_webapi_rate_limited_error", retryAfter: 59.1 };
-const setupUrl = "https://qm.example/admin/?setup=slack";
-const options = { managed: true, setupUrl };
+const options = { managed: true };
 
 function fixture() {
   const ephemeral: any[] = [];
@@ -40,7 +39,7 @@ test("channel history failures notify requester in channel before a thread exist
   assert.deepEqual(ephemeral[0], {
     channel: "C1",
     user: "U1",
-    text: "Slack is temporarily limiting history reads, so I may be missing earlier context. Try again in 60 seconds, or <https://qm.example/admin/?setup=slack|set up your own Slack app>.",
+    text: "Slack is temporarily limiting history reads, so I may be missing earlier context. Try again in 60 seconds.",
   });
   assert.equal(messages.length, 0);
 });
@@ -59,12 +58,10 @@ test("DM notice is a normal reply and concurrent channel requester stays isolate
   assert.equal(ephemeral[0].thread_ts, undefined);
 });
 
-test("no shared URL, unsafe setup URL, non429 and background requests stay quiet", async () => {
+test("unmanaged apps, non429 and background requests stay quiet", async () => {
   const { client, ephemeral, messages } = fixture();
-  for (const opts of [{ setupUrl }, { managed: true }, { managed: true, setupUrl: "http://qm.example" }]) {
-    const notice = createSlackRateLimitNotice(opts);
-    await notice.run(client, { target: "C1", user: "U1" }, () => notice.observe(rateLimit));
-  }
+  const unmanaged = createSlackRateLimitNotice({});
+  await unmanaged.run(client, { target: "C1", user: "U1" }, () => unmanaged.observe(rateLimit));
   const notice = createSlackRateLimitNotice(options);
   await notice.observe(rateLimit);
   await notice.run(client, { target: "C1", user: "U1" }, async () => {

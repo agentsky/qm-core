@@ -14,6 +14,14 @@ it for `SANDBOX_BACKEND=local`. See [`sandbox-base/README.md`](./sandbox-base/RE
 [`helm/`](./helm/) is the chart itself. [`docs/getting-started.md`](../docs/getting-started.md)
 covers the prerequisites and the values you must set.
 
+## Upgrading from a values file that names browser services
+
+`services.web-ui`, `services.admin`, `services.portal`, and `services.auth` no longer
+exist: the deployment is `core` (Slack plus the HTTP API) and `egress-proxy`. Remove
+those blocks from your values overlay before upgrading. The chart renders a Deployment
+for every enabled entry under `services`, so a leftover block would ask the cluster for
+an image that is no longer built; an `ingress.service` naming one fails the render.
+
 Nothing here is a production deployment, and none of it contains cloud account,
 workspace, or organization credentials. The one exception is [`layers/`](./layers/), which
 is empty in qm itself: a private fork keeps its organization's values file and deployment

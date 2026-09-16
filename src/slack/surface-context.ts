@@ -35,7 +35,6 @@ export function createSurfaceContextFulfiller(deps: {
   clientOptions: Record<string, unknown>;
   readHistory?: SlackHistoryReader;
   historyClient?: any;
-  historyRateLimitOptions?: { managed?: boolean; setupUrl?: string };
 }): { fulfillSurfaceContext(client: any, r: SurfaceContextRequest): Promise<void> } {
   const { core, directory, serializer, botToken, trustedFileHost, userToken, clientOptions } = deps;
 
@@ -246,7 +245,7 @@ export function createSurfaceContextFulfiller(deps: {
         if (outcome.status === "rejected") {
           hasMore = true;
           notes.add(
-            slackHistoryRateLimitMessage(outcome.reason, deps.historyRateLimitOptions) ??
+            slackHistoryRateLimitMessage(outcome.reason) ??
               "Some Slack context could not be read; earlier messages may be missing.",
           );
           continue;
@@ -272,9 +271,7 @@ export function createSurfaceContextFulfiller(deps: {
       });
     } catch (err) {
       const code = slackErrorCode(err);
-      let msg =
-        slackHistoryRateLimitMessage(err, deps.historyRateLimitOptions) ??
-        `Slack read failed: ${(err as Error).message}`;
+      let msg = slackHistoryRateLimitMessage(err) ?? `Slack read failed: ${(err as Error).message}`;
       if (code === "not_in_channel") msg = "I'm not a member of that channel — ask someone to /invite me there";
       else if (code === "channel_not_found") msg = "I can't see that channel";
       await post({ error: msg });

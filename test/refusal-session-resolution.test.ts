@@ -29,7 +29,6 @@ import type { Conversation, Principal } from "../src/types.ts";
 import { refusalNote } from "../src/slack/lib.ts";
 
 const ORG = "default-org";
-const ADMIN = "https://portal.example.com";
 const actor: Principal = { id: "U1", type: "internal" };
 
 function fakeSandbox(): Sandbox {
@@ -83,7 +82,7 @@ function buildOrchestrator(sessions: SessionStore) {
   });
 }
 
-test("a failed turn surfaces a refusal whose admin link points at the real session UUID", async () => {
+test("a failed turn surfaces a refusal naming the real session UUID, never the threadRef", async () => {
   const sessions = createMemorySessionStore();
   const orchestrator = buildOrchestrator(sessions);
   const { runs } = createMemoryRunStore();
@@ -110,15 +109,14 @@ test("a failed turn surfaces a refusal whose admin link points at the real sessi
   const session = await sessions.getByThread(threadRef);
   assert.ok(session, "session row exists for the threadRef");
 
-  const app = createApp({ sessions, runs, publicWebUrl: ADMIN } as unknown as AppDeps);
+  const app = createApp({ sessions, runs } as unknown as AppDeps);
   const got = await app.getRun(run.id);
   assert.equal(got?.result?.sessionId, session!.id, "getRun resolved threadRef → real UUID");
   assert.notEqual(got?.result?.sessionId, threadRef);
-  assert.equal(got?.result?.adminUrl, `${ADMIN}/admin/history/s/${session!.id}`);
 
   const note = refusalNote(got!.result!, "channel");
-  console.log("\n  Slack would post:\n  " + note + "\n");
-  assert.equal(note.split("Full error: ")[1], `${ADMIN}/admin/history/s/${session!.id} Try again, or DM me.`);
-  assert.doesNotMatch(note, /ch:C_UUID_FIXTURE/, "the link must not contain the threadRef");
+  assert.match(note, /Try again, or DM me\.$/);
+  assert.doesNotMatch(note, /https?:\/\//, "no link to a surface that no longer exists");
+  assert.doesNotMatch(note, /ch:C_UUID_FIXTURE/, "the note must not contain the threadRef");
   assert.doesNotMatch(note, /fully-internal/, "a turn failure is not a boundary refusal");
 });

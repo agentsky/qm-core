@@ -24,8 +24,6 @@ function fixture() {
     core,
     ids,
     source: "mirror",
-    managed: true,
-    setupUrl: "https://qm.test/admin/?setup=slack",
   });
   const client = {
     conversations: {
@@ -111,7 +109,7 @@ test("partial mirror retains Slack throttling guidance", async () => {
   const result = await readHistory(client, "C1", "1.000000");
   assert.equal(result.raw.length, 1);
   assert.match(result.note!, /60/);
-  assert.match(result.note!, /https:\/\/qm.test\/admin/);
+  assert.doesNotMatch(result.note!, /https?:\/\//);
 });
 
 test("external audience is rejected before reading mirror or Slack", async () => {
@@ -222,9 +220,7 @@ test("surface context combines channel coverage and thread rate-limit notes", as
     readHistory: async (_client, _channel, thread) => ({
       raw: [],
       hasMore: false,
-      note: thread
-        ? "Retry in 60 seconds; setup: https://qm.test/admin/?setup=slack"
-        : "Stored events may be incomplete.",
+      note: thread ? "Retry in 60 seconds." : "Stored events may be incomplete.",
     }),
   });
   await fulfiller.fulfillSurfaceContext({}, {
@@ -233,7 +229,6 @@ test("surface context combines channel coverage and thread rate-limit notes", as
   } as import("../src/api/slack-core-client.ts").SurfaceContextRequest);
   assert.match(outcome.result.note, /Stored events/);
   assert.match(outcome.result.note, /60 seconds/);
-  assert.match(outcome.result.note, /setup=slack/);
 });
 
 test("surface context keeps a successful channel page when an empty thread is throttled", async () => {
@@ -252,7 +247,6 @@ test("surface context keeps a successful channel page when an empty thread is th
     } as unknown as import("../src/slack/conversation-view.ts").ConversationSerializer,
     botToken: "test",
     clientOptions: {},
-    historyRateLimitOptions: { managed: true, setupUrl: "https://qm.test/admin/?setup=slack" },
     readHistory: async (_client, _channel, thread) => {
       if (thread) throw { code: "slack_webapi_rate_limited_error", retryAfter: 60 };
       return {
@@ -270,7 +264,6 @@ test("surface context keeps a successful channel page when an empty thread is th
   assert.equal(outcome.result.messages[0].text, "stored channel message");
   assert.match(outcome.result.note, /Stored events/);
   assert.match(outcome.result.note, /60/);
-  assert.match(outcome.result.note, /setup=slack/);
 });
 
 test("deleted messages do not consume context page slots or reappear through fallback", async () => {

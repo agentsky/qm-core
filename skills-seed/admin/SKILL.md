@@ -149,9 +149,10 @@ grant change — don't offer it.
 
 ## Admin grants (promote / revoke)
 
-Not available through you: who governs the org is set by the deployment operator in
-`ADMIN_GRANTS` (comma-separated `email:org_admin` entries in the deployment's values),
-never through an agent. If asked, say so — don't try the API
+Not available through you: an existing admin changes who governs the org by calling
+`POST` or `DELETE /v1/admin/grants` directly with their own credentials, and the
+deployment's `ADMIN_GRANTS` (comma-separated `email:org_admin` entries) seeds only the
+first admin of an org that has none. Grants never change through an agent. If asked, say so — don't try the API
 (`POST/DELETE /v1/admin/grants` refuses agent tokens).
 
 ## Failure modes

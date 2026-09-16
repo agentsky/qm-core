@@ -294,7 +294,7 @@ async function consentMint(ctx: ApiCtx): Promise<void> {
     return sendJson(res, 400, {
       error: "bad_request",
       message:
-        "consent links are only mintable for yourself — to get someone else connected, ask them to connect it " +
+        "consent links are only mintable for yourself; to get someone else connected, ask them to connect it " +
         "themselves — a consent link only ever identifies the person who signs in with it",
     });
   }

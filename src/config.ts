@@ -784,10 +784,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     "PORTER_DEPLOY_API_TOKEN",
     "PORTER_DEPLOY_APPS_DOMAIN",
     "PORTAL_SESSION_SECRET",
+    "WEB_UI_PUBLIC_URL",
+    "SURFACE_DEBUG_FOOTER",
+    "SUGGESTED_ACTIVITIES_ENABLED",
+    "SUGGESTED_ACTIVITIES_CONTEXT",
   ].filter((name) => env[name]?.trim());
   if (retiredHostingEnv.length) {
     console.warn(
-      `[config] ${retiredHostingEnv.join(", ")} ${retiredHostingEnv.length === 1 ? "is" : "are"} retired and ignored — the Fly, AWS, Porter, and portal deployment paths were removed; deploy with the Helm chart (docs/getting-started.md). Remove the variables.`,
+      `[config] ${retiredHostingEnv.join(", ")} ${retiredHostingEnv.length === 1 ? "is" : "are"} retired and ignored — the Fly, AWS, Porter, portal, and browser-surface deployment paths were removed; deploy with the Helm chart (docs/getting-started.md). Remove the variables.`,
     );
   }
   const retiredBrainEnv = ["BRAIN", "BRAIN_MCP_URL", "BRAIN_RO_CLIENT_ID", "BRAIN_RW_CLIENT_ID"].filter((name) =>

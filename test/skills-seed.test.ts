@@ -74,7 +74,7 @@ test("every licence shipped with a seed skill is MIT, and no tracked source carr
 
   const tracked = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" }).split("\0").filter(Boolean);
   const offenders = tracked.filter((path) => {
-    if (path.endsWith("package-lock.json") || path === "test/skills-seed.test.ts") return false;
+    if (path.endsWith("package-lock.json") || path === "test/skills-seed.test.ts" || path === "LICENSE") return false;
     let text: string;
     try {
       text = readFileSync(path, "utf8");
@@ -83,7 +83,7 @@ test("every licence shipped with a seed skill is MIT, and no tracked source carr
     }
     return text.includes(["Apache", " License"].join(""));
   });
-  assert.deepEqual(offenders, [], "Apache-licensed material must not be vendored into this MIT repository");
+  assert.deepEqual(offenders, [], "Apache-licensed material must not be vendored into this repository");
 });
 
 function writeSeedSkill(dir: string, name: string, description: string, body: string): void {

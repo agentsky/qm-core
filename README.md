@@ -239,11 +239,12 @@ it prepares a clean upstream branch without private deployment data or history.
 
 ## License
 
-Except where otherwise noted, QM is available under the
-[Functional Source License, Version 1.1, ALv2 Future License](./LICENSE) (FSL-1.1-ALv2):
-free to use, modify, and redistribute for any purpose other than a competing commercial
-product or service, with each version converting to Apache-2.0 terms two years after its
-release.
+QM is a modified codebase with two-part [licensing terms](./LICENSE). The foundational
+code inherited from the upstream QM project stays under its original MIT License. Every
+deletion, modification, and new contribution made in this repository is licensed under the
+Functional Source License, Version 1.1, ALv2 Future License (FSL-1.1-ALv2): free to use,
+modify, and redistribute for any purpose other than a competing commercial product or
+service, with each version converting to Apache-2.0 terms two years after its release.
 
 ### Managed Slack installation
 

@@ -2,7 +2,7 @@
   "name": "qm",
   "version": "0.1.0",
   "private": true,
-  "license": "FSL-1.1-ALv2",
+  "license": "(FSL-1.1-ALv2 AND MIT)",
   "type": "module",
   "description": "Headless core for the shared org agent (managed-agents architecture).",
   "engines": {

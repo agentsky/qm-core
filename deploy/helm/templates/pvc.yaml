@@ -1,0 +1,21 @@
+{{- $root := . -}}
+{{- range $name, $svc := .Values.services }}
+{{- if and $svc.enabled $svc.persistence $svc.persistence.enabled (not $svc.persistence.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "qm.fullname" $root }}-{{ $name }}-data
+  labels:
+    {{- include "qm.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- with $svc.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $svc.persistence.size | default "10Gi" }}
+{{- end }}
+{{- end }}

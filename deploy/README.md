@@ -22,6 +22,18 @@ those blocks from your values overlay before upgrading. The chart renders a Depl
 for every enabled entry under `services`, so a leftover block would ask the cluster for
 an image that is no longer built; an `ingress.service` naming one fails the render.
 
+## Upgrading to chart 0.5
+
+Core now claims a `ReadWriteOnce` persistent volume for its data directory
+(`services.core.persistence`, default 10Gi from the cluster's default StorageClass) and
+rolls out with the `Recreate` strategy, because uploaded files, blob transfers, and
+workspaces live as bytes under that directory rather than in Postgres. Bytes written by
+an earlier release sat on the container filesystem and are already gone with that pod;
+nothing migrates. Core also runs with `SESSION_STORE=postgres`, `RUN_STORE=postgres`, and
+`HARNESS=pi` unless your overlay sets them, and the render fails for more than one core
+replica while persistence is on; multi-replica cores keep their bytes in S3
+(`SNAPSHOT_STORE=s3`, `TRANSFER_STORE=s3`, `S3_BUCKET`) with persistence disabled.
+
 Nothing here is a production deployment, and none of it contains cloud account,
 workspace, or organization credentials. The one exception is [`layers/`](./layers/), which
 is empty in qm itself: a private fork keeps its organization's values file and deployment

@@ -3,8 +3,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHART="$ROOT/deploy/helm"
+VALUES="$CHART/examples/getting-started.yaml"
 RELEASE="${K3S_E2E_RELEASE:-qm}"
-NAMESPACE="${K3S_E2E_NAMESPACE:-qm-e2e}"
+NAMESPACE="${K3S_E2E_NAMESPACE:-qm-e2e-$(printf '%04x%04x' "$RANDOM" "$RANDOM")}"
 IMAGE_REPO="${K3S_E2E_IMAGE_REPO:-qm}"
 IMAGE_TAG="${K3S_E2E_IMAGE_TAG:-e2e}"
 PUBLIC_URL="${K3S_E2E_PUBLIC_URL:-http://qm.e2e.local}"
@@ -12,9 +13,13 @@ POSTGRES_IMAGE="${K3S_E2E_POSTGRES_IMAGE:-postgres:16-alpine}"
 LOG_DIR="${K3S_E2E_LOG_DIR:-$ROOT/.k3s-e2e-logs}"
 CORE_LOCAL_PORT="${K3S_E2E_CORE_PORT:-18080}"
 ROLLOUT_TIMEOUT="${K3S_E2E_ROLLOUT_TIMEOUT:-300s}"
+K3S_KUBECONFIG="${K3S_E2E_K3S_KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+KUBECONFIG_COPY="$LOG_DIR/kubeconfig"
 
 SERVICES=(core egress-proxy)
 PORT_FORWARD_PIDS=()
+KUBE_CONTEXT=""
+NAMESPACE_OWNED=0
 
 SUDO=""
 if [[ "$(id -u)" -ne 0 ]]; then
@@ -32,6 +37,14 @@ fail() {
   exit 1
 }
 
+kubectl() {
+  command kubectl ${KUBE_CONTEXT:+--context "$KUBE_CONTEXT"} "$@"
+}
+
+helm() {
+  command helm ${KUBE_CONTEXT:+--kube-context "$KUBE_CONTEXT"} "$@"
+}
+
 dump_diagnostics() {
   log "dumping diagnostics to $LOG_DIR"
   {
@@ -42,7 +55,7 @@ dump_diagnostics() {
     kubectl get events -n "$NAMESPACE" --sort-by=.lastTimestamp 2>&1 || true
     echo
     echo "### kubectl describe -n $NAMESPACE"
-    kubectl describe pods,deployments,services -n "$NAMESPACE" 2>&1 || true
+    kubectl describe pods,deployments,services,persistentvolumeclaims -n "$NAMESPACE" 2>&1 || true
     echo
     echo "### pod logs"
     for pod in $(kubectl get pods -n "$NAMESPACE" -o name 2>/dev/null || true); do
@@ -75,12 +88,13 @@ teardown() {
 on_exit() {
   local status=$?
   stop_port_forwards
-  if [[ $status -ne 0 ]] && command -v kubectl >/dev/null 2>&1; then
-    dump_diagnostics
-  fi
-  if command -v helm >/dev/null 2>&1 && command -v kubectl >/dev/null 2>&1; then
+  if [[ "$NAMESPACE_OWNED" == "1" ]]; then
+    if [[ $status -ne 0 ]]; then
+      dump_diagnostics
+    fi
     teardown
   fi
+  rm -f "$KUBECONFIG_COPY"
   exit "$status"
 }
 trap on_exit EXIT
@@ -89,10 +103,16 @@ cluster_reachable() {
   command -v kubectl >/dev/null 2>&1 && kubectl cluster-info >/dev/null 2>&1
 }
 
+bind_context() {
+  KUBE_CONTEXT="$(command kubectl config current-context)"
+  [[ -n "$KUBE_CONTEXT" ]] || fail "kubectl has no current context to bind to"
+  log "bound to kubectl context $KUBE_CONTEXT"
+}
+
 adopt_k3s_kubeconfig() {
-  [[ -f /etc/rancher/k3s/k3s.yaml ]] || return 1
-  $SUDO chmod 644 /etc/rancher/k3s/k3s.yaml
-  export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+  $SUDO test -f "$K3S_KUBECONFIG" || return 1
+  (umask 077 && $SUDO cat "$K3S_KUBECONFIG" >"$KUBECONFIG_COPY")
+  export KUBECONFIG="$KUBECONFIG_COPY"
   cluster_reachable
 }
 
@@ -100,13 +120,14 @@ ensure_cluster() {
   if cluster_reachable; then
     log "using the cluster kubectl already reaches"
   elif adopt_k3s_kubeconfig; then
-    log "adopted the existing k3s kubeconfig"
+    log "adopted the k3s kubeconfig at $K3S_KUBECONFIG"
   else
     log "installing k3s"
     curl -sfL https://get.k3s.io | $SUDO sh -s - --disable traefik ||
       fail "could not fetch or run the k3s installer from https://get.k3s.io"
     adopt_k3s_kubeconfig || fail "k3s installed but kubectl cannot reach the cluster"
   fi
+  bind_context
   kubectl wait --for=condition=Ready node --all --timeout=180s >/dev/null
   command -v k3s >/dev/null 2>&1 || fail "k3s is required to import locally built images into containerd"
 }
@@ -139,9 +160,15 @@ build_images() {
   import_image "$POSTGRES_IMAGE"
 }
 
+create_namespace() {
+  log "creating namespace $NAMESPACE"
+  kubectl create namespace "$NAMESPACE" >/dev/null ||
+    fail "namespace $NAMESPACE already exists or cannot be created; this script only tears down a namespace it created, so pick another K3S_E2E_NAMESPACE or remove that one yourself"
+  NAMESPACE_OWNED=1
+}
+
 deploy_postgres() {
   log "deploying postgres into $NAMESPACE"
-  kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   kubectl apply -n "$NAMESPACE" -f - >/dev/null <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -209,9 +236,10 @@ deploy_chart() {
   connector_secret_key="$(secret)"
   skill_signing_secret="$(secret)"
 
-  log "installing the chart as $RELEASE in $NAMESPACE"
+  log "installing the chart as $RELEASE in $NAMESPACE from $VALUES"
   helm upgrade --install "$RELEASE" "$CHART" \
-    --namespace "$NAMESPACE" --create-namespace \
+    --namespace "$NAMESPACE" \
+    -f "$VALUES" \
     --set image.repository="$IMAGE_REPO" \
     --set image.tag="$IMAGE_TAG" \
     --set image.pullPolicy=Never \
@@ -222,13 +250,8 @@ deploy_chart() {
     --set secretEnv.PORTAL_IDENTITY_SECRET="$portal_identity_secret" \
     --set secretEnv.CONNECTOR_SECRET_KEY="$connector_secret_key" \
     --set secretEnv.SKILL_SIGNING_SECRET="$skill_signing_secret" \
-    --set secretEnv.SANDBOX_BACKEND=local \
     --set secretEnv.ADMIN_GRANTS="e2e@example.com:org_admin" \
-    --set env.HARNESS=mock \
-    --set env.NODE_ENV=production \
-    --set env.SESSION_STORE=postgres \
-    --set env.RUN_STORE=postgres \
-    --set env.DEPLOY_PROVIDER=docker \
+    --set services.core.env.HARNESS=mock \
     --wait=false
 }
 
@@ -242,10 +265,21 @@ wait_rollouts() {
   done
 }
 
+component_selector() {
+  printf 'app.kubernetes.io/instance=%s,app.kubernetes.io/component=%s' "$RELEASE" "$1"
+}
+
 service_for() {
   local name
-  name="$(kubectl get svc -n "$NAMESPACE" -l "app.kubernetes.io/instance=$RELEASE,app.kubernetes.io/component=$1" -o name)"
+  name="$(kubectl get svc -n "$NAMESPACE" -l "$(component_selector "$1")" -o name)"
   [[ -n "$name" ]] || fail "the chart rendered no $1 service"
+  printf '%s' "$name"
+}
+
+deployment_for() {
+  local name
+  name="$(kubectl get deployments -n "$NAMESPACE" -l "$(component_selector "$1")" -o name)"
+  [[ -n "$name" ]] || fail "the chart rendered no $1 deployment"
   printf '%s' "$name"
 }
 
@@ -270,35 +304,66 @@ expect_status() {
   log "GET $url -> $got"
 }
 
-signed_turn() {
-  local base="$1" path="/v1/turns" body timestamp canonical signature response
-  body='{"surface":"k3s-e2e","actor":{"externalId":"e2e-user"},"conversation":{"kind":"dm","threadRef":"k3s-e2e"},"text":"k3s e2e ping"}'
+signed_curl() {
+  local method="$1" path="$2" tail="$3"
+  shift 3
+  local timestamp signature
   timestamp="$(date +%s)"
-  canonical="$(printf 'POST\n%s\n%s' "$path" "$body")"
-  signature="v0=$(printf 'v0:%s:%s' "$timestamp" "$canonical" | openssl dgst -sha256 -hmac "$CORE_SIGNING_SECRET" -r | cut -d' ' -f1)"
-  response="$(curl -sS -X POST "$base$path" \
-    -H 'content-type: application/json' \
+  signature="v0=$(printf 'v0:%s:%s\n%s\n%s' "$timestamp" "$method" "$path" "$tail" |
+    openssl dgst -sha256 -hmac "$CORE_SIGNING_SECRET" -r | cut -d' ' -f1)"
+  curl -sS -X "$method" "http://127.0.0.1:$CORE_LOCAL_PORT$path" \
     -H "x-timestamp: $timestamp" \
     -H "x-signature: $signature" \
-    --data-binary "$body")"
+    "$@"
+}
+
+mock_turn() {
+  local body response
+  body='{"surface":"k3s-e2e","actor":{"externalId":"e2e-user"},"conversation":{"kind":"dm","threadRef":"k3s-e2e"},"text":"k3s e2e ping"}'
+  response="$(signed_curl POST /v1/turns "$body" -H 'content-type: application/json' --data-binary "$body")"
   printf '%s\n' "$response" >"$LOG_DIR/turn.log"
   grep -q 'You said: k3s e2e ping' <<<"$response" || fail "mock turn did not round-trip: $response"
-  log "mock turn round-tripped through POST $path"
+  log "mock turn round-tripped through POST /v1/turns"
+}
+
+blob_survives_pod_replacement() {
+  local upload="$LOG_DIR/blob.bin" download="$LOG_DIR/blob.downloaded" sha response blob_id
+  openssl rand 65536 >"$upload"
+  sha="$(openssl dgst -sha256 -r "$upload" | cut -d' ' -f1)"
+  response="$(signed_curl POST /v1/blobs "$sha" \
+    -H 'content-type: application/octet-stream' -H "x-content-sha256: $sha" --data-binary "@$upload")"
+  printf '%s\n' "$response" >"$LOG_DIR/blob.log"
+  blob_id="$(grep -o '"blobId":"[0-9a-f]*"' <<<"$response" | cut -d'"' -f4)"
+  [[ -n "$blob_id" ]] || fail "blob upload did not return a blobId: $response"
+  log "uploaded blob $blob_id; replacing the core pod"
+
+  stop_port_forwards
+  kubectl delete pods -n "$NAMESPACE" -l "$(component_selector core)" --wait=true --timeout="$ROLLOUT_TIMEOUT" >/dev/null
+  kubectl rollout status -n "$NAMESPACE" "$(deployment_for core)" --timeout="$ROLLOUT_TIMEOUT"
+  start_port_forward "$(service_for core)" "$CORE_LOCAL_PORT" 8080
+
+  signed_curl GET "/v1/blobs/$blob_id" "" -o "$download" --fail ||
+    fail "blob $blob_id was not readable after the core pod was replaced"
+  cmp -s "$upload" "$download" || fail "blob $blob_id came back with different bytes after the core pod was replaced"
+  log "blob $blob_id survived the core pod replacement byte for byte"
 }
 
 verify() {
   start_port_forward "$(service_for core)" "$CORE_LOCAL_PORT" 8080
   expect_status "http://127.0.0.1:$CORE_LOCAL_PORT/healthz" 200
-  signed_turn "http://127.0.0.1:$CORE_LOCAL_PORT"
+  mock_turn
+  blob_survives_pod_replacement
 }
 
 command -v docker >/dev/null 2>&1 || fail "docker is required to build the images the chart runs"
 command -v openssl >/dev/null 2>&1 || fail "openssl is required to mint e2e secrets"
 command -v curl >/dev/null 2>&1 || fail "curl is required"
+[[ -f "$VALUES" ]] || fail "$VALUES is missing"
 
 ensure_cluster
 ensure_helm
 build_images
+create_namespace
 deploy_postgres
 deploy_chart
 wait_rollouts

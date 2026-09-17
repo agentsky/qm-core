@@ -6,8 +6,20 @@ hosts the Slack integration and the HTTP API, and the egress proxy, from one val
 ## Prerequisites
 
 - A Kubernetes cluster and `kubectl` context you can deploy into, plus Helm 3.
-- A Postgres database reachable from the cluster. Core keeps every durable store there;
-  supply its URL as `secretEnv.DATABASE_URL`.
+- A Postgres database reachable from the cluster. Core keeps its records there (sessions,
+  runs, memory, grants, file metadata); supply its URL as `secretEnv.DATABASE_URL`. The
+  chart runs core with `SESSION_STORE=postgres` and `RUN_STORE=postgres` so every record
+  store is database-backed from the first boot.
+- Storage for file bytes. Uploaded files, blob transfers, and workspaces are bytes under
+  core's data directory, not rows in Postgres. The chart claims a `ReadWriteOnce`
+  persistent volume for it by default (`services.core.persistence`, one replica, pod
+  replacement in place), so your cluster needs a default StorageClass or you name one in
+  `services.core.persistence.storageClass`. To run more than one core replica, put the
+  bytes in S3 instead: set `SNAPSHOT_STORE=s3`, `TRANSFER_STORE=s3`, and `S3_BUCKET` (plus
+  `S3_REGION` and the AWS SDK's usual credentials or an IAM role), and disable
+  persistence.
+- A model. The chart runs core with `HARNESS=pi`, which calls the provider whose key you
+  supply; without a harness setting core answers with canned text.
 - Service images. Either use the signed images the release workflow publishes to
   `ghcr.io/yc-software/qm` (`image.repository` and `image.tag`), or build and push your
   own from this checkout with [`scripts/deploy-helm.sh`](../scripts/deploy-helm.sh).
@@ -21,7 +33,9 @@ hosts the Slack integration and the HTTP API, and the egress proxy, from one val
 
 ## Deploy
 
-Write a values file with your own secrets — never commit it:
+Write a values file with your own secrets — never commit it. This one is
+[`deploy/helm/examples/getting-started.yaml`](../deploy/helm/examples/getting-started.yaml),
+and the k3s end-to-end job installs it against a fresh database on every change:
 
 ```yaml
 image:

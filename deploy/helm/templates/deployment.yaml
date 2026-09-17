@@ -1,6 +1,10 @@
 {{- $root := . -}}
 {{- range $name, $svc := .Values.services }}
 {{- if $svc.enabled }}
+{{- $persistent := and $svc.persistence $svc.persistence.enabled }}
+{{- if and $persistent (gt (int ($svc.replicas | default 1)) 1) }}
+{{- fail (printf "services.%s.persistence keeps %s on one ReadWriteOnce volume, so replicas must be 1; for more replicas set SNAPSHOT_STORE=s3, TRANSFER_STORE=s3, and S3_BUCKET and disable persistence" $name $svc.dataDir) }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -11,6 +15,10 @@ metadata:
     app.kubernetes.io/component: {{ $name }}
 spec:
   replicas: {{ $svc.replicas | default 1 }}
+  {{- if $persistent }}
+  strategy:
+    type: Recreate
+  {{- end }}
   selector:
     matchLabels:
       {{- include "qm.selectorLabels" $root | nindent 6 }}
@@ -28,6 +36,16 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "qm.serviceAccountName" $root }}
+      {{- with $svc.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if $persistent }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $svc.persistence.existingClaim | default (printf "%s-%s-data" (include "qm.fullname" $root) $name) }}
+      {{- end }}
       containers:
         - name: {{ $name }}
           image: "{{ $root.Values.image.repository }}{{ $root.Values.image.separator | default "/" }}{{ $svc.image }}:{{ $svc.tag | default $root.Values.image.tag | default $root.Chart.AppVersion }}"
@@ -43,6 +61,9 @@ spec:
           {{- $svcHost := printf "%s-%%s.%s.svc.cluster.local" (include "qm.fullname" $root) $root.Release.Namespace }}
           {{- if ne $name "core" }}
           {{- $_ := set $wired "CORE_API_URL" (printf "http://%s:%v" (printf $svcHost "core") (index $root.Values.services "core").port) }}
+          {{- end }}
+          {{- if and $persistent $svc.dataDir }}
+          {{- $_ := set $wired "DATA_DIR" $svc.dataDir }}
           {{- end }}
           {{- if and $root.Values.publicUrl (eq $name "core") }}
           {{- $_ := set $wired "AGENT_API_URL" $root.Values.publicUrl }}
@@ -90,6 +111,11 @@ spec:
           {{- with $svc.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if $persistent }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ $svc.dataDir }}
           {{- end }}
 {{- end }}
 {{- end }}

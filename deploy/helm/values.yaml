@@ -73,10 +73,7 @@ services:
         memory: 1Gi
       limits:
         memory: 2Gi
-    env:
-      SESSION_STORE: postgres
-      RUN_STORE: postgres
-      HARNESS: pi
+    env: {}
     dataDir: /data
     podSecurityContext:
       fsGroup: 1000

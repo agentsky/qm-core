@@ -26,13 +26,15 @@ an image that is no longer built; an `ingress.service` naming one fails the rend
 
 Core now claims a `ReadWriteOnce` persistent volume for its data directory
 (`services.core.persistence`, default 10Gi from the cluster's default StorageClass) and
-rolls out with the `Recreate` strategy, because uploaded files, blob transfers, and
-workspaces live as bytes under that directory rather than in Postgres. Bytes written by
-an earlier release sat on the container filesystem and are already gone with that pod;
-nothing migrates. Core also runs with `SESSION_STORE=postgres`, `RUN_STORE=postgres`, and
-`HARNESS=pi` unless your overlay sets them, and the render fails for more than one core
-replica while persistence is on; multi-replica cores keep their bytes in S3
-(`SNAPSHOT_STORE=s3`, `TRANSFER_STORE=s3`, `S3_BUCKET`) with persistence disabled.
+rolls out with the `Recreate` strategy, because uploaded files, blob transfers,
+workspaces, and deployment checkouts live as bytes under that directory rather than in
+Postgres. Bytes written by an earlier release sat on the container filesystem and are
+already gone with that pod; nothing migrates. The claim is annotated
+`helm.sh/resource-policy: keep`, so `helm uninstall` leaves it and its bytes in place.
+Core also runs with `SESSION_STORE=postgres`, `RUN_STORE=postgres`, and `HARNESS=pi`
+unless your overlay sets them (at either `env` or `services.core.env`), and the render
+fails for more than one core replica while persistence is on, since one `ReadWriteOnce`
+volume cannot follow two pods.
 
 Nothing here is a production deployment, and none of it contains cloud account,
 workspace, or organization credentials. The one exception is [`layers/`](./layers/), which

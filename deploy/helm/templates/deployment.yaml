@@ -2,8 +2,11 @@
 {{- range $name, $svc := .Values.services }}
 {{- if $svc.enabled }}
 {{- $persistent := and $svc.persistence $svc.persistence.enabled }}
+{{- if and $persistent (not $svc.dataDir) }}
+{{- fail (printf "services.%s.persistence needs services.%s.dataDir to say where the volume mounts" $name $name) }}
+{{- end }}
 {{- if and $persistent (gt (int ($svc.replicas | default 1)) 1) }}
-{{- fail (printf "services.%s.persistence keeps %s on one ReadWriteOnce volume, so replicas must be 1; for more replicas set SNAPSHOT_STORE=s3, TRANSFER_STORE=s3, and S3_BUCKET and disable persistence" $name $svc.dataDir) }}
+{{- fail (printf "services.%s.persistence keeps %s on one ReadWriteOnce volume, so replicas must be 1" $name $svc.dataDir) }}
 {{- end }}
 ---
 apiVersion: apps/v1
@@ -59,7 +62,11 @@ spec:
               containerPort: {{ $svc.port }}
           {{- $wired := dict }}
           {{- $svcHost := printf "%s-%%s.%s.svc.cluster.local" (include "qm.fullname" $root) $root.Release.Namespace }}
-          {{- if ne $name "core" }}
+          {{- if eq $name "core" }}
+          {{- $_ := set $wired "SESSION_STORE" "postgres" }}
+          {{- $_ := set $wired "RUN_STORE" "postgres" }}
+          {{- $_ := set $wired "HARNESS" "pi" }}
+          {{- else }}
           {{- $_ := set $wired "CORE_API_URL" (printf "http://%s:%v" (printf $svcHost "core") (index $root.Values.services "core").port) }}
           {{- end }}
           {{- if and $persistent $svc.dataDir }}

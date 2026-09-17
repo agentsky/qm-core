@@ -10,16 +10,18 @@ hosts the Slack integration and the HTTP API, and the egress proxy, from one val
   runs, memory, grants, file metadata); supply its URL as `secretEnv.DATABASE_URL`. The
   chart runs core with `SESSION_STORE=postgres` and `RUN_STORE=postgres` so every record
   store is database-backed from the first boot.
-- Storage for file bytes. Uploaded files, blob transfers, and workspaces are bytes under
-  core's data directory, not rows in Postgres. The chart claims a `ReadWriteOnce`
-  persistent volume for it by default (`services.core.persistence`, one replica, pod
-  replacement in place), so your cluster needs a default StorageClass or you name one in
-  `services.core.persistence.storageClass`. To run more than one core replica, put the
-  bytes in S3 instead: set `SNAPSHOT_STORE=s3`, `TRANSFER_STORE=s3`, and `S3_BUCKET` (plus
-  `S3_REGION` and the AWS SDK's usual credentials or an IAM role), and disable
-  persistence.
+- Storage for file bytes. Uploaded files, blob transfers, workspaces, and deployment
+  checkouts are bytes under core's data directory, not rows in Postgres. The chart claims
+  a `ReadWriteOnce` persistent volume for it (`services.core.persistence`, 10Gi from the
+  cluster's default StorageClass unless you name one in
+  `services.core.persistence.storageClass`), runs one core replica, and replaces the pod
+  in place on upgrades. `helm uninstall` leaves the claim behind; delete it yourself when
+  you mean to. Uploads and blob transfers can move to S3 (`SNAPSHOT_STORE=s3`,
+  `TRANSFER_STORE=s3`, `S3_BUCKET`, `S3_REGION`, and the AWS SDK's usual credentials or an
+  IAM role); workspaces and deployment checkouts have no S3 option, so the volume stays
+  and core stays at one replica either way.
 - A model. The chart runs core with `HARNESS=pi`, which calls the provider whose key you
-  supply; without a harness setting core answers with canned text.
+  supply; `HARNESS=mock` answers with canned text and calls no provider.
 - Service images. Either use the signed images the release workflow publishes to
   `ghcr.io/yc-software/qm` (`image.repository` and `image.tag`), or build and push your
   own from this checkout with [`scripts/deploy-helm.sh`](../scripts/deploy-helm.sh).

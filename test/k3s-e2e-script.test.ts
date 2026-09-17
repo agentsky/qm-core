@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,7 +12,7 @@ const STUB = `#!/usr/bin/env bash
 name="$(basename "$0")"
 printf '%s %s\\n' "$name" "$*" >>"$STUB_LOG"
 case "$name $*" in
-  "sudo "*) shift; exec "$@" ;;
+  "sudo "*) exec "$@" ;;
   "kubectl cluster-info"*)
     case "$STUB_CLUSTER" in
       reachable) exit 0 ;;
@@ -33,11 +33,13 @@ case "$name $*" in
 esac
 `;
 
-function run(env: Record<string, string>) {
+const STUBS = ["sudo", "kubectl", "helm", "docker", "k3s", "openssl", "curl"];
+
+function run(env: Record<string, string>, stubs = STUBS, basePath = process.env.PATH ?? "") {
   const dir = mkdtempSync(join(tmpdir(), "k3s-e2e-"));
   const bin = join(dir, "bin");
   mkdirSync(bin);
-  for (const name of ["sudo", "kubectl", "helm", "docker", "k3s", "openssl", "curl"]) {
+  for (const name of stubs) {
     writeFileSync(join(bin, name), STUB, { mode: 0o755 });
   }
   const logDir = join(dir, "logs");
@@ -46,7 +48,7 @@ function run(env: Record<string, string>) {
   const result = spawnSync("bash", [SCRIPT], {
     encoding: "utf8",
     env: {
-      PATH: `${bin}:${process.env.PATH ?? ""}`,
+      PATH: `${bin}:${basePath}`,
       HOME: dir,
       STUB_LOG: stubLog,
       K3S_E2E_LOG_DIR: logDir,
@@ -55,7 +57,10 @@ function run(env: Record<string, string>) {
       ...env,
     },
   });
-  return { dir, logDir, result, calls: readFileSync(stubLog, "utf8") };
+  const calls = readFileSync(stubLog, "utf8");
+  const kubeconfigCopy = existsSync(join(logDir, "kubeconfig"));
+  rmSync(dir, { recursive: true, force: true });
+  return { result, calls, kubeconfigCopy };
 }
 
 const uninstall = /^helm .*uninstall/m;
@@ -72,8 +77,22 @@ test("a prerequisite failure before anything is created tears nothing down", () 
 test("an existing namespace is refused and left untouched", () => {
   const { result, calls } = run({ STUB_CLUSTER: "reachable", STUB_NAMESPACE_EXISTS: "1" });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /namespace qm-e2e-under-test already exists/);
+  assert.match(result.stderr, /cannot create namespace qm-e2e-under-test \(Error from server \(AlreadyExists\)/);
   assert.match(calls, /^kubectl --context stub-context create namespace qm-e2e-under-test$/m);
+  assert.doesNotMatch(calls, uninstall);
+  assert.doesNotMatch(calls, deleteNamespace);
+});
+
+test("a missing helm binary is installed rather than mistaken for the helm wrapper", () => {
+  const { result, calls } = run(
+    { STUB_CLUSTER: "reachable" },
+    STUBS.filter((name) => name !== "helm"),
+    "/usr/bin:/bin",
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /installing helm/);
+  assert.match(calls, /^curl -fsSL https:\/\/raw\.githubusercontent\.com\/helm\/helm\/main\/scripts\/get-helm-3$/m);
+  assert.doesNotMatch(calls, /create namespace/);
   assert.doesNotMatch(calls, uninstall);
   assert.doesNotMatch(calls, deleteNamespace);
 });
@@ -91,7 +110,7 @@ test("adopting the k3s kubeconfig copies it owner-only and leaves the original's
   const source = join(dir, "k3s.yaml");
   writeFileSync(source, "apiVersion: v1\nkind: Config\n");
   chmodSync(source, 0o600);
-  const { logDir, result, calls } = run({
+  const { result, calls, kubeconfigCopy } = run({
     STUB_CLUSTER: "kubeconfig",
     STUB_NAMESPACE_EXISTS: "1",
     K3S_E2E_K3S_KUBECONFIG: source,
@@ -100,7 +119,7 @@ test("adopting the k3s kubeconfig copies it owner-only and leaves the original's
   assert.match(result.stderr, /adopted the k3s kubeconfig/);
   assert.equal(statSync(source).mode & 0o777, 0o600);
   assert.doesNotMatch(calls, /chmod/);
-  assert.equal(existsSync(join(logDir, "kubeconfig")), false);
+  assert.equal(kubeconfigCopy, false);
   assert.doesNotMatch(calls, uninstall);
   assert.doesNotMatch(calls, deleteNamespace);
 });

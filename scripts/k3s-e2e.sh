@@ -99,8 +99,12 @@ on_exit() {
 }
 trap on_exit EXIT
 
+installed() {
+  type -P "$1" >/dev/null 2>&1
+}
+
 cluster_reachable() {
-  command -v kubectl >/dev/null 2>&1 && kubectl cluster-info >/dev/null 2>&1
+  installed kubectl && kubectl cluster-info >/dev/null 2>&1
 }
 
 bind_context() {
@@ -129,17 +133,17 @@ ensure_cluster() {
   fi
   bind_context
   kubectl wait --for=condition=Ready node --all --timeout=180s >/dev/null
-  command -v k3s >/dev/null 2>&1 || fail "k3s is required to import locally built images into containerd"
+  installed k3s || fail "k3s is required to import locally built images into containerd"
 }
 
 ensure_helm() {
-  if command -v helm >/dev/null 2>&1; then
+  if installed helm; then
     log "helm already installed"
     return
   fi
   log "installing helm"
   curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-  command -v helm >/dev/null 2>&1 || fail "helm install did not put helm on PATH"
+  installed helm || fail "helm install did not put helm on PATH"
 }
 
 import_image() {
@@ -162,8 +166,10 @@ build_images() {
 
 create_namespace() {
   log "creating namespace $NAMESPACE"
-  kubectl create namespace "$NAMESPACE" >/dev/null ||
-    fail "namespace $NAMESPACE already exists or cannot be created; this script only tears down a namespace it created, so pick another K3S_E2E_NAMESPACE or remove that one yourself"
+  local reason
+  if ! reason="$(kubectl create namespace "$NAMESPACE" 2>&1 >/dev/null)"; then
+    fail "cannot create namespace $NAMESPACE ($reason); this script only tears down a namespace it created, so pick another K3S_E2E_NAMESPACE or remove that one yourself"
+  fi
   NAMESPACE_OWNED=1
 }
 
@@ -338,8 +344,10 @@ blob_survives_pod_replacement() {
   log "uploaded blob $blob_id; replacing the core pod"
 
   stop_port_forwards
-  kubectl delete pods -n "$NAMESPACE" -l "$(component_selector core)" --wait=true --timeout="$ROLLOUT_TIMEOUT" >/dev/null
-  kubectl rollout status -n "$NAMESPACE" "$(deployment_for core)" --timeout="$ROLLOUT_TIMEOUT"
+  local core_deployment
+  core_deployment="$(deployment_for core)"
+  kubectl rollout restart -n "$NAMESPACE" "$core_deployment" >/dev/null
+  kubectl rollout status -n "$NAMESPACE" "$core_deployment" --timeout="$ROLLOUT_TIMEOUT"
   start_port_forward "$(service_for core)" "$CORE_LOCAL_PORT" 8080
 
   signed_curl GET "/v1/blobs/$blob_id" "" -o "$download" --fail ||
@@ -355,9 +363,9 @@ verify() {
   blob_survives_pod_replacement
 }
 
-command -v docker >/dev/null 2>&1 || fail "docker is required to build the images the chart runs"
-command -v openssl >/dev/null 2>&1 || fail "openssl is required to mint e2e secrets"
-command -v curl >/dev/null 2>&1 || fail "curl is required"
+installed docker || fail "docker is required to build the images the chart runs"
+installed openssl || fail "openssl is required to mint e2e secrets"
+installed curl || fail "curl is required"
 [[ -f "$VALUES" ]] || fail "$VALUES is missing"
 
 ensure_cluster

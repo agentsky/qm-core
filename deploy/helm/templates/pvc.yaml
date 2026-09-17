@@ -9,6 +9,8 @@ metadata:
   labels:
     {{- include "qm.labels" $root | nindent 4 }}
     app.kubernetes.io/component: {{ $name }}
+  annotations:
+    helm.sh/resource-policy: keep
 spec:
   accessModes: ["ReadWriteOnce"]
   {{- with $svc.persistence.storageClass }}

@@ -15,7 +15,8 @@ hosts the Slack integration and the HTTP API, and the egress proxy, from one val
   a `ReadWriteOnce` persistent volume for it (`services.core.persistence`, 10Gi from the
   cluster's default StorageClass unless you name one in
   `services.core.persistence.storageClass`), runs one core replica, and replaces the pod
-  in place on upgrades. `helm uninstall` leaves the claim behind; delete it yourself when
+  in place on upgrades. The mount path is `services.core.dataDir`; the render refuses a
+  `DATA_DIR` set in `env` that points anywhere else. `helm uninstall` leaves the claim behind; delete it yourself when
   you mean to. Uploads and blob transfers can move to S3 (`SNAPSHOT_STORE=s3`,
   `TRANSFER_STORE=s3`, `S3_BUCKET`, `S3_REGION`, and the AWS SDK's usual credentials or an
   IAM role); workspaces and deployment checkouts have no S3 option, so the volume stays

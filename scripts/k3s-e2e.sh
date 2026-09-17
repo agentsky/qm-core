@@ -146,6 +146,27 @@ ensure_helm() {
   installed helm || fail "helm install did not put helm on PATH"
 }
 
+expect_render_failure() {
+  local want="$1" output
+  shift
+  if output="$(command helm template "$RELEASE" "$CHART" -f "$VALUES" "$@" 2>&1)"; then
+    fail "helm template $* rendered, expected it to fail with: $want"
+  fi
+  grep -qF "$want" <<<"$output" || fail "helm template $* failed without the expected message ($want): $output"
+  log "render refused $*"
+}
+
+check_renders() {
+  command helm lint "$CHART" -f "$VALUES" >/dev/null || fail "helm lint failed on $VALUES"
+  command helm template "$RELEASE" "$CHART" -f "$VALUES" | grep -q 'mountPath: /data' ||
+    fail "the fixture did not render the core data volume mount"
+  expect_render_failure "set services.core.dataDir instead" --set env.DATA_DIR=/tmp/qm-data
+  expect_render_failure "set services.core.dataDir instead" --set services.core.env.DATA_DIR=/tmp/qm-data
+  expect_render_failure "replicas must be 1" --set services.core.replicas=2
+  expect_render_failure "needs services.core.dataDir" --set services.core.dataDir=null
+  expect_render_failure "not a service the chart declares" --set ingress.service=web-ui
+}
+
 import_image() {
   local image="$1"
   log "importing $image into k3s containerd"
@@ -291,8 +312,8 @@ deployment_for() {
 
 start_port_forward() {
   local target="$1" local_port="$2" remote_port="$3"
-  kubectl port-forward -n "$NAMESPACE" --address 127.0.0.1 "$target" "$local_port:$remote_port" \
-    >>"$LOG_DIR/port-forward.log" 2>&1 &
+  command kubectl ${KUBE_CONTEXT:+--context "$KUBE_CONTEXT"} port-forward -n "$NAMESPACE" --address 127.0.0.1 \
+    "$target" "$local_port:$remote_port" >>"$LOG_DIR/port-forward.log" 2>&1 &
   PORT_FORWARD_PIDS+=($!)
   for _ in $(seq 1 60); do
     if curl -sS -o /dev/null "http://127.0.0.1:$local_port/healthz" 2>/dev/null; then
@@ -370,6 +391,7 @@ installed curl || fail "curl is required"
 
 ensure_cluster
 ensure_helm
+check_renders
 build_images
 create_namespace
 deploy_postgres

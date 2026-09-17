@@ -77,6 +77,9 @@ spec:
           {{- $_ := set $wired "PUBLIC_WEB_URL" $root.Values.publicUrl }}
           {{- end }}
           {{- $env := mergeOverwrite (deepCopy $wired) (deepCopy ($root.Values.env | default dict)) (deepCopy ($svc.env | default dict)) }}
+          {{- if and $persistent (ne (index $env "DATA_DIR") $svc.dataDir) }}
+          {{- fail (printf "DATA_DIR=%s would send %s's file bytes outside the volume mounted at %s; set services.%s.dataDir instead of overriding DATA_DIR in env" (index $env "DATA_DIR") $name $svc.dataDir $name) }}
+          {{- end }}
           {{- if $env }}
           env:
             {{- range $k, $v := $env }}

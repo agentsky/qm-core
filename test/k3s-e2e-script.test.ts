@@ -26,9 +26,14 @@ case "$name $*" in
       exit 1
     fi ;;
   "kubectl"*" get deployments"*) echo deployment/stub ;;
+  "kubectl"*" get svc"*) echo service/stub ;;
+  "kubectl"*" port-forward"*) echo $$ >"$STUB_PORT_FORWARD_PID"; exec sleep 300 ;;
   "kubectl"*" apply"*|"k3s"*) cat >/dev/null ;;
+  "helm"*" template"*"--set"*) echo "set services.core.dataDir instead; replicas must be 1; needs services.core.dataDir; not a service the chart declares"; exit 1 ;;
+  "helm"*" template"*) echo "mountPath: /data" ;;
   "helm"*" upgrade"*) [[ "\${STUB_HELM_UPGRADE:-ok}" == "ok" ]] ;;
   "openssl rand"*) echo 0123456789abcdef0123456789abcdef0123456789abcdef ;;
+  "curl"*"/healthz"*) [[ "$*" == *" -w "* ]] && echo 200; exit 0 ;;
   "curl"*) exit 1 ;;
 esac
 `;
@@ -44,6 +49,7 @@ function run(env: Record<string, string>, stubs = STUBS, basePath = process.env.
   }
   const logDir = join(dir, "logs");
   const stubLog = join(dir, "calls.log");
+  const portForwardPidFile = join(dir, "port-forward.pid");
   writeFileSync(stubLog, "");
   const result = spawnSync("bash", [SCRIPT], {
     encoding: "utf8",
@@ -51,6 +57,7 @@ function run(env: Record<string, string>, stubs = STUBS, basePath = process.env.
       PATH: `${bin}:${basePath}`,
       HOME: dir,
       STUB_LOG: stubLog,
+      STUB_PORT_FORWARD_PID: portForwardPidFile,
       K3S_E2E_LOG_DIR: logDir,
       K3S_E2E_NAMESPACE: "qm-e2e-under-test",
       K3S_E2E_K3S_KUBECONFIG: join(dir, "absent-k3s.yaml"),
@@ -59,8 +66,18 @@ function run(env: Record<string, string>, stubs = STUBS, basePath = process.env.
   });
   const calls = readFileSync(stubLog, "utf8");
   const kubeconfigCopy = existsSync(join(logDir, "kubeconfig"));
+  const portForwardPid = existsSync(portForwardPidFile) ? Number(readFileSync(portForwardPidFile, "utf8")) : undefined;
   rmSync(dir, { recursive: true, force: true });
-  return { result, calls, kubeconfigCopy };
+  return { result, calls, kubeconfigCopy, portForwardPid };
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const uninstall = /^helm .*uninstall/m;
@@ -122,4 +139,16 @@ test("adopting the k3s kubeconfig copies it owner-only and leaves the original's
   assert.equal(kubeconfigCopy, false);
   assert.doesNotMatch(calls, uninstall);
   assert.doesNotMatch(calls, deleteNamespace);
+});
+
+test("stopping a port-forward kills the kubectl process itself, not a wrapper shell around it", () => {
+  const { result, calls, portForwardPid } = run({ STUB_CLUSTER: "reachable" });
+  assert.notEqual(result.status, 0);
+  assert.match(
+    calls,
+    /^kubectl --context stub-context port-forward -n qm-e2e-under-test --address 127\.0\.0\.1 service\/stub 18080:8080$/m,
+  );
+  assert.ok(portForwardPid, "the port-forward stub recorded its pid");
+  assert.equal(alive(portForwardPid), false);
+  assert.match(calls, deleteNamespace);
 });

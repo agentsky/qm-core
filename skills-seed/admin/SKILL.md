@@ -26,7 +26,7 @@ Three limits the API enforces (don't offer what it will refuse):
   exactly its own GET routes to that cron's autonomous fires, audited as the owner
   (re-checked live — revoking their admin grant closes it). Other mutations work
   anywhere; the room sees what changed, by design.
-- **Grant changes (promote/revoke) are portal-only** through you — see below.
+- **Grant changes (promote/revoke) are operator-only** — see below.
 
 All calls share one shape — only method/path/body vary:
 
@@ -52,13 +52,14 @@ read means unknown, not absent. Never inspect deployment secrets to infer status
   This is not a live connectivity check; help them send a mention or DM to verify a reply.
 - `managed: true`, `configured: false`: leave the deliberately disabled bot alone
   unless the admin asks to re-enable it.
-- `source: "invalid_environment"`: help finish the existing setup using the page's
-  instructions or deployment operator; do not create a duplicate app.
+- `source: "invalid_environment"`: help finish the existing setup with the deployment
+  operator; do not create a duplicate app.
 - Otherwise offer the setup below. It is optional; continue onboarding if deferred.
 
-When `installAvailable: true`, use the authenticated admin dashboard's **Add to Slack**
-action. Use the known dashboard URL, not an invented hostname or a launch ticket minted
-in the agent's shell. Walk the admin through the offered flow, one step at a time:
+When `installAvailable: true`, the admin completes **Add to Slack** through the install
+flow the deployment offers. Use the URL the deployment gives you, not an invented
+hostname or a launch ticket minted in the agent's shell. Walk the admin through the
+offered flow, one step at a time:
 
 1. If a configuration-token form appears, open [Slack app settings](https://api.slack.com/apps).
    Under **App Configuration Tokens**, choose **Generate Token**, select the intended
@@ -73,8 +74,8 @@ in the agent's shell. Walk the admin through the offered flow, one step at a tim
    require a real reply to a DM or mention before claiming the bot works. Follow the
    page's recovery instructions after failure rather than blindly repeating creation.
 
-Without managed installation, use the returned `createUrl` and the dashboard's workspace
-app guide. Have them enter credentials only in that secure form. Do not guess scopes,
+Without managed installation, use the returned `createUrl` and its workspace app guide.
+Have them enter credentials only in that secure form. Do not guess scopes,
 callback URLs, or credential requirements; reuse existing setup and recheck status.
 
 ## Finding the scope
@@ -130,8 +131,8 @@ GET /v1/admin/users            → roster + admin status (org-wide)
 
 ## External users
 
-Outside collaborators, admitted by email with a role and an expiry; they sign in at the
-portal with that address until it lapses. Listed alongside the roster:
+Outside collaborators, admitted by email with a role and an expiry; they sign in with that
+address until it lapses. Listed alongside the roster:
 
 ```bash
 GET /v1/admin/users                          → externalUsers: [{email, role, expiresAt, invitedBy, status: active|expired}]
@@ -143,13 +144,15 @@ Confirm with the admin before inviting or revoking — say who, which role, and 
 when. The invitation email needs Resend configured on core (`RESEND_API_KEY` +
 `AUTH_EMAIL_FROM`); without it the user is still added. When the response has
 `emailSent:false`, tell the admin why (`emailProblem`) and hand them `signInUrl` to pass
-along themselves. The `org_admin` role for externals is portal-only, like every other
+along themselves. The `org_admin` role for externals is operator-only, like every other
 grant change — don't offer it.
 
 ## Admin grants (promote / revoke)
 
-Not available through you: who governs the org changes only in the admin dashboard,
-where the admin acts directly. If asked, point them there — don't try the API
+Not available through you: an existing admin changes who governs the org by calling
+`POST` or `DELETE /v1/admin/grants` directly with their own credentials, and the
+deployment's `ADMIN_GRANTS` (comma-separated `email:org_admin` entries) seeds only the
+first admin of an org that has none. Grants never change through an agent. If asked, say so — don't try the API
 (`POST/DELETE /v1/admin/grants` refuses agent tokens).
 
 ## Failure modes
@@ -162,13 +165,14 @@ where the admin acts directly. If asked, point them there — don't try the API
   tell the admin to ask again in a DM with you (or, for reads they want recurring
   on a schedule, to put an unattended read grant on a personal-scope cron — from
   their DM, never from here).
-- `403 … grant changes (promote/revoke) are portal-only` — point them at the dashboard.
-- `403 granting or removing org admin for an external user is portal-only …` — same
-  answer: the dashboard.
+- `403 … grant changes (promote/revoke) are operator-only` — say the deployment
+  operator has to do it; you cannot.
+- `403 granting or removing org admin for an external user is operator-only …` — same
+  answer.
 - `409 that address already belongs to a member of the org …` — org email domain, Slack
   directory, sign-in allow-list, or someone who has already used the agent. They are not
-  external; point the admin at Users / Admins for that person instead.
-- `409 that address holds an org admin grant of its own …` — the admin manages that grant
-  under Admins in the dashboard first.
+  external; tell the admin to manage that person as a member instead.
+- `409 that address holds an org admin grant of its own …` — the admin removes that
+  grant directly first.
 - `403 capability token not valid for this route` — this core predates agent admin
-  access; the user must use the admin dashboard.
+  access; the admin has to act directly.

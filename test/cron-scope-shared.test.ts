@@ -227,7 +227,6 @@ describe("notifyOwnerOfCronEdit: the one chokepoint both edit paths share", () =
         enqueueDelivery: async (i) =>
           void enqueued.push(i as { destination: { target: string }; text: string; idempotencyKey: string }),
         directoryMember: async (p) => members[p] ?? null,
-        cronAdminUrl: (c) => `https://x/admin/?cron=${c.id}`,
       },
     };
   }
@@ -243,7 +242,7 @@ describe("notifyOwnerOfCronEdit: the one chokepoint both edit paths share", () =
       ...over,
     }) as Cron;
 
-  it("notifies the owner when a NON-owner edits, naming the editor and linking to admin", async () => {
+  it("notifies the owner when a NON-owner edits, naming the editor and the cron", async () => {
     const { sink, enqueued } = fakeSink({ "U-mate": { displayName: "Casey" } });
     await notifyOwnerOfCronEdit(sink, {
       cron: cron(),
@@ -255,7 +254,7 @@ describe("notifyOwnerOfCronEdit: the one chokepoint both edit paths share", () =
     assert.equal(enqueued[0]!.destination.target, "U-owner");
     assert.match(enqueued[0]!.idempotencyKey, /^cron-edit-notice:cron_x:/);
     assert.match(enqueued[0]!.text, /^Heads up: Casey /, "names the editor, not 'someone'");
-    assert.match(enqueued[0]!.text, /<https:\/\/x\/admin\/\?cron=cron_x\|Digest>/, "links the cron in admin");
+    assert.match(enqueued[0]!.text, /"Digest"/, "names the cron by title");
   });
 
   it("does NOT notify on a cross-surface self-edit (email owner ↔ Slack-id editor, same person)", async () => {

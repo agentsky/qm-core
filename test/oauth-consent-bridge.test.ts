@@ -1,4 +1,4 @@
-import "./support/auto-fake-sprites.ts";
+import "./support/auto-fake-smolmachines.ts";
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -131,8 +131,8 @@ test("mint → intended teammate redeems → callback connects them; the link is
 
     const cb = `/v1/connectors/oauth/google/callback?code=code-1&state=${encodeURIComponent(consent.searchParams.get("state") ?? "")}`;
     const cbRes = await fetch(`${srv.base}${cb}`, { redirect: "manual" });
-    assert.equal(cbRes.status, 302);
-    assert.match(cbRes.headers.get("location") ?? "", /^\/connectors\?connector=google&status=connected/);
+    assert.equal(cbRes.status, 200, "nothing asked for a returnTo, so the callback answers JSON");
+    assert.equal(((await cbRes.json()) as { ok: boolean }).ok, true);
     assert.equal(exchanged, 1);
     assert.equal(await srv.built.connectorTokens.connectorAccessToken("gmail.googleapis.com", "U1"), "at-google");
 
@@ -218,7 +218,7 @@ test("connecting from a channel never re-grants a previously private connector",
     assert.equal(decision.status, "authorize");
     const state = new URL(decision.authorizeUrl).searchParams.get("state") ?? "";
     const cb = `/v1/connectors/oauth/google/callback?code=code-1&state=${encodeURIComponent(state)}`;
-    assert.equal((await fetch(`${srv.base}${cb}`, { redirect: "manual" })).status, 302);
+    assert.equal((await fetch(`${srv.base}${cb}`, { redirect: "manual" })).status, 200);
     assert.equal(await srv.built.connectorTokens.connectorAccessToken("gmail.googleapis.com", "U1"), "at-google");
     assert.equal((await srv.built.keychain!.materializeStanding("channel:C9")).length, 0);
   } finally {
@@ -226,7 +226,7 @@ test("connecting from a channel never re-grants a previously private connector",
   }
 });
 
-test("mint refuses naming anyone but the actor, and points at the self-connect page", async () => {
+test("mint refuses naming anyone but the actor, and tells them to connect it themselves", async () => {
   const srv = start(async () => {
     throw new Error("must not exchange");
   });
@@ -236,14 +236,15 @@ test("mint refuses naming anyone but the actor, and points at the self-connect p
       const res = await mint(srv.base, cap, { provider: "google", intendedPrincipalId: who });
       assert.equal(res.status, 400);
       const body = (await res.json()) as { message: string };
-      assert.match(body.message, /\/connect\/google\/self-connect/);
+      assert.match(body.message, /ask them to connect it themselves/);
+      assert.doesNotMatch(body.message, /https?:\/\//);
     }
   } finally {
     await srv.close();
   }
 });
 
-test("on an API-only host (no PUBLIC_WEB_URL) the callback does NOT default to the web UI — it falls through to JSON", async () => {
+test("the callback never defaults to a browser surface — it falls through to JSON", async () => {
   const fetchImpl: FetchLike = async () => ({
     ok: true,
     status: 200,

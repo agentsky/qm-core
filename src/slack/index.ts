@@ -210,12 +210,8 @@ export async function startSlackPlugin(
     ...(cfg.userCacheTtlMs ? { userCacheTtlMs: cfg.userCacheTtlMs } : {}),
   });
   const mirror = createMirror({ core, ids, directory, externalParticipantsEnabled });
-  const historyRateLimitOptions = {
-    managed: Boolean(cfg.sharedServiceUrl?.trim()),
-    ...(cfg.webUiPublicUrl ? { setupUrl: `${cfg.webUiPublicUrl.replace(/\/$/, "")}/admin/?setup=slack` } : {}),
-  };
   const rateLimitNotice = createSlackRateLimitNotice({
-    ...historyRateLimitOptions,
+    managed: Boolean(cfg.sharedServiceUrl?.trim()),
     client: new WebClient(BOT_TOKEN, { ...CLIENT_OPTIONS, ...HISTORY_NO_RETRY, timeout: 5000 }),
   });
   const historyApi = new WebClient(BOT_TOKEN, { ...CLIENT_OPTIONS, ...HISTORY_NO_RETRY });
@@ -239,11 +235,9 @@ export async function startSlackPlugin(
     ids,
     historyClient,
     source: cfg.contextSource ?? "live",
-    ...historyRateLimitOptions,
   });
   const serializer = createConversationSerializer({
     readHistory,
-    historyRateLimitOptions,
     ids,
     directory,
     externalParticipantsEnabled,
@@ -254,7 +248,6 @@ export async function startSlackPlugin(
     headerFacts: (scope) => core.surfaceHeaderFacts(scope as Parameters<typeof core.surfaceHeaderFacts>[0]),
     channelPinEnabled: (scope) =>
       core.channelHeaderPinEnabled(scope as Parameters<typeof core.channelHeaderPinEnabled>[0]),
-    webUiPublicUrl: cfg.webUiPublicUrl,
     ids,
   });
   if (CORE_SINGLETON)
@@ -346,14 +339,12 @@ export async function startSlackPlugin(
     inboxMessage,
     ...(allowActor ? { allowActor } : {}),
     ...(denyResponder ? { denyResponder } : {}),
-    ...(cfg.webUiPublicUrl ? { webUiPublicUrl: cfg.webUiPublicUrl } : {}),
     ensureHeader,
   });
   const surfaceContext = createSurfaceContextFulfiller({
     rateLimitNotice,
     historyClient,
     readHistory,
-    historyRateLimitOptions,
     core,
     directory,
     serializer,
@@ -367,7 +358,6 @@ export async function startSlackPlugin(
     flow,
     threads,
     clientForIdentity,
-    webUiPublicUrl: cfg.webUiPublicUrl,
   });
 
   let auth: AuthTestResponse;

@@ -1,4 +1,4 @@
-import "./support/auto-fake-sprites.ts";
+import "./support/auto-fake-smolmachines.ts";
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -10,7 +10,6 @@ import { createInsecureTestServer, createServer } from "../src/api/server.ts";
 import { buildApp } from "../src/wiring.ts";
 import { INVITE_EMAIL_NOT_CONFIGURED, renderInviteEmail, type InviteMailer } from "../src/admin/invite-email.ts";
 import { adminStatusFromGrants } from "../src/admin/admin-service.ts";
-import { coreEmailAllowed } from "../plugins/chassis/src/external-members.ts";
 import { mintCapabilityToken, CAPABILITY_TTL_MS, CONTROL_PLANE_AUD } from "../src/auth/capability-token.ts";
 import { scopeId, type TurnRequest } from "../src/types.ts";
 import { testConfig } from "./support/test-config.ts";
@@ -404,7 +403,7 @@ test("an agent token may invite a member but never grant, demote, or revoke an o
 
     const promote = await invite(s.base, { email: "boss@partner.example", role: "org_admin", expiresAt }, cap);
     assert.equal(promote.status, 403);
-    assert.match(((await promote.json()) as any).message, /portal-only/);
+    assert.match(((await promote.json()) as any).message, /operator-only/);
     assert.equal(s.built.identity.externalMember("boss@partner.example"), undefined);
 
     const now = Date.now();
@@ -420,7 +419,7 @@ test("an agent token may invite a member but never grant, demote, or revoke an o
     assert.equal(demote.status, 403);
     const del = await revoke(s.base, "boss@partner.example", cap);
     assert.equal(del.status, 403);
-    assert.match(((await del.json()) as any).message, /portal-only/);
+    assert.match(((await del.json()) as any).message, /operator-only/);
     assert.equal(s.built.identity.externalMember("boss@partner.example")?.role, "org_admin");
 
     assert.equal((await revoke(s.base, "pat@partner.example", cap)).status, 200);
@@ -452,7 +451,7 @@ test("an agent token may invite a member but never grant, demote, or revoke an o
     ]) {
       const r = await attempt;
       assert.equal(r.status, 403);
-      assert.match(((await r.json()) as any).message, /portal-only/);
+      assert.match(((await r.json()) as any).message, /operator-only/);
     }
     assert.equal(s.built.identity.classify("promoted@partner.example").type, "internal");
     assert.equal(adminStatusFromGrants(await s.built.admin.listGrants(), "promoted@partner.example").isAdmin, true);
@@ -463,7 +462,7 @@ test("an agent token may invite a member but never grant, demote, or revoke an o
   }
 });
 
-test("expiry classifies an external as guest, and the signed broker check answers accordingly", async () => {
+test("expiry classifies an external member as a guest and an unexpired one as internal", async () => {
   const s = start({ signed: true });
   try {
     const now = Date.now();
@@ -479,18 +478,6 @@ test("expiry classifies an external as guest, and the signed broker check answer
     await s.built.identity.putExternalMember(record("gone@partner.example", now - 1));
     assert.equal(s.built.identity.classify("live@partner.example").type, "internal");
     assert.equal(s.built.identity.classify("Gone@Partner.example").type, "guest");
-
-    assert.equal(await coreEmailAllowed(s.base, SECRET, "Live@Partner.example", "test"), true);
-    assert.equal(await coreEmailAllowed(s.base, SECRET, "gone@partner.example", "test"), false);
-    assert.equal(await coreEmailAllowed(s.base, SECRET, "stranger@partner.example", "test"), false);
-    assert.equal(await coreEmailAllowed(s.base, "wrong-secret".repeat(4), "live@partner.example", "test"), false);
-    assert.equal(await coreEmailAllowed("http://127.0.0.1:1", SECRET, "live@partner.example", "test"), false);
-    const unsigned = await fetch(`${s.base}/v1/auth/broker/email-allowed?email=live%40partner.example`);
-    assert.equal(unsigned.status, 401);
-
-    await s.built.identity.deactivate("live@partner.example");
-    assert.equal(await coreEmailAllowed(s.base, SECRET, "live@partner.example", "test"), false);
-    await s.built.identity.reactivate("live@partner.example");
 
     const list = await roster(s.base, { "x-agent-capability": await capFor("admin-alice") });
     assert.deepEqual(

@@ -47,7 +47,6 @@ export function registerSlackEvents(
     deduper: ReturnType<typeof createDeduper>;
     allowActor?: (actor: ActorAssertion) => boolean;
     denyResponder?: DenyResponder;
-    webUiPublicUrl?: string;
     ensureHeader?: (
       client: SurfaceHeaderClient,
       channel: string,
@@ -338,7 +337,6 @@ export function registerSlackEvents(
         channel: e.channel,
         joinerUserId: e.user,
         botUserId: ids.botUserId,
-        webUiPublicUrl: deps.webUiPublicUrl,
         syncDirectory: () => forceDirectorySync(client),
         ...(deps.ensureHeader
           ? {

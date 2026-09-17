@@ -1,6 +1,4 @@
-import type { createSuggestedActivityService } from "../suggestions/activities.ts";
 import type { ManagedSlack } from "../surfaces/slack-managed.ts";
-import type { BrokerSessionStore } from "../auth/broker-sessions.ts";
 import type { DirectFileUploads } from "../files/direct-file-upload.ts";
 import type { SandboxResources } from "../sandbox/sandbox-resources.ts";
 import type { ModelVerifier } from "../model/model-verification.ts";
@@ -71,7 +69,6 @@ import type { AdvisoryLock } from "../persistence/advisory-lock.ts";
 import type { SlackInstallationStore, SlackSocketAppIdReader } from "../surfaces/slack-installation.ts";
 
 export interface ServerDeps {
-  suggestedActivities?: ReturnType<typeof createSuggestedActivityService>;
   production?: boolean;
   allowUnauthenticatedCore?: boolean;
   signingSecret?: string;
@@ -80,7 +77,6 @@ export interface ServerDeps {
   requireSignedPortalIdentity?: boolean;
   control: ControlService;
   replayDedupe?: ReplayDedupe;
-  brokerSessions?: BrokerSessionStore;
   connectorTokens?: ConnectorTokenStore;
   managedSlack?: ManagedSlack;
   slackInstallation?: SlackInstallationStore;
@@ -169,7 +165,6 @@ export interface ServerDeps {
   deployGateSecret?: string;
   deployAppsSessionSecret?: string;
   deployAppsLoginUrl?: string;
-  deployAppsLoginPath?: "/auth/login" | "/auth/trusted/login";
   scheduler?: Scheduler;
   webhookReceiver?: WebhookReceiver;
   identity?: IdentityService;

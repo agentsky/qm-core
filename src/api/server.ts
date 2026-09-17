@@ -50,10 +50,10 @@ function capabilityAdminDenied(method: string, pathname: string, url: URL, claim
     return "admin actions through the agent require a turn the admin started themselves — autonomous turns (crons, webhooks) cannot act as an admin";
   }
   if (pathname.startsWith("/v1/admin/grants")) {
-    return "admin grant changes (promote/revoke) are portal-only — the agent cannot manage who governs the org";
+    return "admin grant changes (promote/revoke) are operator-only — an authenticated admin calls POST or DELETE /v1/admin/grants directly, and ADMIN_GRANTS seeds only the first admin; the agent cannot manage who governs the org";
   }
   if (pathname.startsWith("/v1/admin/impersonate")) {
-    return "impersonating a user is portal-only — the agent cannot act as another person";
+    return "impersonating a user is operator-only — the agent cannot act as another person";
   }
   if (
     method === "PUT" &&

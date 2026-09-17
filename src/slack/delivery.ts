@@ -57,33 +57,11 @@ export function slackReplyArgs(
   };
 }
 
-export function scopeSurfaceUrl(webUiPublicUrl: string | undefined, scopeId: string): string | undefined {
-  const base = (webUiPublicUrl ?? "").trim().replace(/\/+$/, "");
-  if (!base || !scopeId) return undefined;
-  const personal = /^personal:([^@]+)@/.exec(scopeId);
-  if (personal?.[1] && /^[a-z0-9._-]+$/i.test(personal[1])) return `${base}/projects/${personal[1].toLowerCase()}`;
-  const shared = /^(channel|group):(.+)$/.exec(scopeId);
-  if (shared?.[1] && shared[2]) return `${base}/projects/${shared[1]}/${encodeURIComponent(shared[2])}`;
-  return `${base}/contexts?scope=${encodeURIComponent(scopeId)}`;
-}
+export const CHANNEL_WELCOME_MESSAGE = "QM here, ready to assist.";
 
-export function channelSurfaceUrl(webUiPublicUrl: string | undefined, channelId: string): string | undefined {
-  return scopeSurfaceUrl(webUiPublicUrl, `channel:${channelId}`);
-}
-
-export function channelWelcomeMessage(surfaceUrl: string | undefined): string {
-  if (!surfaceUrl) {
-    return "QM here, ready to assist.";
-  }
-  return `QM here, ready to assist. Access my data and channel settings <${surfaceUrl}|here>.`;
-}
-
-export function surfaceHeaderText(facts: { modelName?: string }, projectUrl: string | undefined): string | undefined {
+export function surfaceHeaderText(facts: { modelName?: string }): string | undefined {
   const model = (facts.modelName ?? "").trim();
-  const url = (projectUrl ?? "").trim();
-  const modelText = model ? `Using ${model} here.` : "";
-  const link = url ? `<${url}|More settings>` : "";
-  return [modelText, link].filter(Boolean).join(" ") || undefined;
+  return model ? `Using ${model} here.` : undefined;
 }
 
 function unwrapSlackLinks(text: string): string {
@@ -146,7 +124,6 @@ const HEADER_PIN_OFF = "<surface-header-off>";
 export function createSurfaceHeaderEnsurer(opts: {
   headerFacts(scope: string): Promise<{ agentLabel?: string; modelName: string }>;
   channelPinEnabled?(scope: string): Promise<boolean>;
-  webUiPublicUrl: string | undefined;
   ids: { botUserId: string };
   maxTracked?: number;
 }): (
@@ -169,10 +146,7 @@ export function createSurfaceHeaderEnsurer(opts: {
     inFlight.add(channel);
     void (async () => {
       try {
-        const desired = surfaceHeaderText(
-          await opts.headerFacts(scopeId),
-          scopeSurfaceUrl(opts.webUiPublicUrl, scopeId),
-        );
+        const desired = surfaceHeaderText(await opts.headerFacts(scopeId));
         if (!desired) return;
         const enabled = kind === "dm" || ((await opts.channelPinEnabled?.(scopeId)) ?? false);
         const goal = enabled ? desired : HEADER_PIN_OFF;
@@ -225,18 +199,16 @@ export async function onBotJoinedChannel(opts: {
   channel: string | undefined;
   joinerUserId: string | undefined;
   botUserId: string;
-  webUiPublicUrl: string | undefined;
   syncDirectory: () => Promise<void>;
   ensureHeader?: (channel: string) => void;
 }): Promise<void> {
-  const { client, channel, joinerUserId, botUserId, webUiPublicUrl, syncDirectory, ensureHeader } = opts;
+  const { client, channel, joinerUserId, botUserId, syncDirectory, ensureHeader } = opts;
   if (!channel || !joinerUserId || joinerUserId !== botUserId) return;
-  const surfaceUrl = channelSurfaceUrl(webUiPublicUrl, channel);
   try {
     const info = (await client.conversations.info({ channel })).channel;
     if (!isExternallyShared(info)) {
       await client.chat.postMessage(
-        slackReplyArgs(channel, channelWelcomeMessage(surfaceUrl), undefined, { unfurlLinks: false }),
+        slackReplyArgs(channel, CHANNEL_WELCOME_MESSAGE, undefined, { unfurlLinks: false }),
       );
       ensureHeader?.(channel);
     }

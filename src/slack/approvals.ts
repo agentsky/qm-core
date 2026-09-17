@@ -19,7 +19,6 @@ import {
   dmThreadRef,
   encodeDeliveryTarget,
   inlineCode,
-  isBoundaryRefusal,
   recoveredApprovalContext,
   resolveReactionTargets,
   slackReplyArgs,
@@ -822,13 +821,11 @@ export function createApprovals(deps: {
         return;
       }
 
-      const failLink = isBoundaryRefusal(result.reason) ? null : (result.adminUrl ?? null);
-      const failDetail = failLink ? ` Full error: ${failLink}` : "";
       await updateSlackMessage(
         client,
         cardChannel,
         messageTs,
-        `I can't continue — ${userFacingFailureClause(result)}.${failDetail}`,
+        `I can't continue — ${userFacingFailureClause(result)}.`,
       );
       ackConveyedQuarantine(outcome);
     } catch (err) {

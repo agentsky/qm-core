@@ -69,7 +69,6 @@ export function createConversationSerializer(deps: {
   externalParticipantsEnabled(): Promise<boolean>;
   recentMessages?: number;
   readHistory: SlackHistoryReader;
-  historyRateLimitOptions?: { managed?: boolean; setupUrl?: string };
 }): ConversationSerializer {
   const { ids, directory, externalParticipantsEnabled } = deps;
   const RECENT_MESSAGE_WINDOW = deps.recentMessages
@@ -198,8 +197,7 @@ export function createConversationSerializer(deps: {
         raw: [] as SlackHistoryMessage[],
         hasMore: true,
         note:
-          slackHistoryRateLimitMessage(error, deps.historyRateLimitOptions) ??
-          "Slack context could not be read; earlier messages may be missing.",
+          slackHistoryRateLimitMessage(error) ?? "Slack context could not be read; earlier messages may be missing.",
       };
     });
     const raw = page.raw;

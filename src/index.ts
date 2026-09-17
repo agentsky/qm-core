@@ -2,6 +2,7 @@ import { createManagedSlack } from "./surfaces/slack-managed.ts";
 import { randomBytes } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { loadConfig } from "./config.ts";
+import { parseAdminGrants } from "./admin/admin-service.ts";
 import { buildApp, serverDeps, stopWithBackstop } from "./wiring.ts";
 import { createServer } from "./api/server.ts";
 import { dockerDaemonFailure } from "./deploy/docker-deploy-provider.ts";
@@ -64,7 +65,11 @@ if (config.deployAppsDomain) {
 
 if (config.databaseUrl && !config.adminGrants) {
   console.warn(
-    "[qm] ADMIN_GRANTS is unset with a durable store — if this deployment has never named an admin, the admin console is unreachable and cannot be unlocked from inside the product; set ADMIN_GRANTS=<email>:org_admin (ignore this if an admin was already promoted in the Users tab).",
+    "[qm] ADMIN_GRANTS is unset with a durable store — if this deployment has never named an admin, nothing can administer this org and it cannot be unlocked from inside the product; set ADMIN_GRANTS=<email>:org_admin (ignore this if an admin was already granted).",
+  );
+} else if (config.adminGrants && parseAdminGrants(config.adminGrants, config.orgId)?.length === 0) {
+  console.warn(
+    `[qm] ADMIN_GRANTS=${JSON.stringify(config.adminGrants)} names no admin — every entry must be <email>:org_admin, so this seed grants nobody.`,
   );
 }
 
@@ -72,14 +77,13 @@ if (config.deployProvider === "docker") {
   void dockerDaemonFailure().then((failure) => {
     if (failure)
       console.warn(
-        `[qm] publishing is unavailable: the docker deploy provider is selected but no Docker daemon is reachable from core (${failure}) — make a daemon reachable, or set DEPLOY_PROVIDER to fly or aws`,
+        `[qm] publishing is unavailable: the docker deploy provider is selected but no Docker daemon is reachable from core (${failure}) — make a daemon reachable from core`,
       );
   });
 }
 
 if (config.backgroundWorkEnabled) {
   built.scheduler.start(1000);
-  built.suggestedActivityMaintenance.start();
 } else {
   console.log("[qm] background work disabled; scheduler and runtime loops will not start");
 }
@@ -130,7 +134,6 @@ function shutdown(signal: string): void {
   for (const runtime of slackAccountRuntimes)
     void runtime.stop().catch((e: unknown) => console.error("[qm] slack account stop failed:", errMessage(e)));
   built.scheduler.stop();
-  built.suggestedActivityMaintenance.stop();
   built.deploymentLayerRefresh.stop();
   server.close();
   server.closeIdleConnections();

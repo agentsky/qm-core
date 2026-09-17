@@ -1,4 +1,4 @@
-import "./support/auto-fake-sprites.ts";
+import "./support/auto-fake-smolmachines.ts";
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -320,7 +320,7 @@ test("grant management refuses agent tokens outright — promote/revoke stays in
       body: JSON.stringify({ principalId: "U9", role: "org_admin", scopeId: ORG }),
     });
     assert.equal(promote.status, 403);
-    assert.match(((await promote.json()) as any).message, /portal-only/);
+    assert.match(((await promote.json()) as any).message, /operator-only/);
 
     const revoke = await fetch(`${s.base}/v1/admin/grants/admin-bob?scope=${encodeURIComponent(ORG)}&role=org_admin`, {
       method: "DELETE",
@@ -345,7 +345,7 @@ test("impersonation refuses agent tokens outright — acting as another user sta
       body: JSON.stringify({ target: "U9" }),
     });
     assert.equal(start1.status, 403);
-    assert.match(((await start1.json()) as any).message, /portal-only/);
+    assert.match(((await start1.json()) as any).message, /operator-only/);
 
     const stop1 = await fetch(`${s.base}/v1/admin/impersonate/stop`, {
       method: "POST",

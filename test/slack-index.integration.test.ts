@@ -399,7 +399,6 @@ async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
 async function fixture(
   options: {
     externalParticipants?: boolean;
-    webUiPublicUrl?: string;
     identityEmail?: "0" | "1";
     extraChannels?: number;
     membershipDelayMs?: number;
@@ -418,7 +417,6 @@ async function fixture(
       ...(options.allowFrom ? { allowFrom: options.allowFrom } : {}),
       ...(options.denyMessage ? { denyMessage: options.denyMessage } : {}),
       ...(options.coreSingleton === undefined ? {} : { coreSingleton: options.coreSingleton }),
-      ...(options.webUiPublicUrl ? { webUiPublicUrl: options.webUiPublicUrl } : {}),
     },
     core,
   );
@@ -854,15 +852,15 @@ test("Slack Connect directory rosters contain only internal principals", async (
   }
 });
 
-test("a human's DM sets the conversation header to the serving model + web surface", async () => {
-  const f = await fixture({ webUiPublicUrl: "https://claw.example.dev" });
+test("a human's DM sets the conversation header to the serving model", async () => {
+  const f = await fixture();
   try {
     await f.app.emitMessage({ channel: "D1", channel_type: "im", user: "U1", text: "hello", ts: "100.1" });
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(f.client.topics, [
       {
         channel: "D1",
-        topic: "Using Claude Opus 4.8 here. <https://claw.example.dev/contexts?scope=personal%3AU1|More settings>",
+        topic: "Using Claude Opus 4.8 here.",
       },
     ]);
     await f.app.emitMessage({ channel: "D1", channel_type: "im", user: "U1", text: "again", ts: "100.2" });
@@ -873,15 +871,15 @@ test("a human's DM sets the conversation header to the serving model + web surfa
   }
 });
 
-test("joining a channel posts the welcome and a pinned header naming the model and project page", async () => {
-  const f = await fixture({ webUiPublicUrl: "https://claw.example.dev" });
+test("joining a channel posts the welcome and a pinned header naming the model", async () => {
+  const f = await fixture();
   try {
     f.core.headerPinScopes.add("channel:C1");
     await f.app.emitEvent("member_joined_channel", { user: "UBOT", channel: "C1", event_ts: "100.1" }, "Ev-bot-join");
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.deepEqual(
       f.client.pinnedByChannel.get("C1")?.map((m) => m.text),
-      ["Using Claude Opus 4.8 here. <https://claw.example.dev/projects/channel/C1|More settings>"],
+      ["Using Claude Opus 4.8 here."],
     );
     assert.deepEqual(f.client.topics, [], "a channel's topic stays the members' own scratch space");
   } finally {
@@ -890,7 +888,7 @@ test("joining a channel posts the welcome and a pinned header naming the model a
 });
 
 test("joining a channel with the toggle off (the default) posts only the welcome — no pin", async () => {
-  const f = await fixture({ webUiPublicUrl: "https://claw.example.dev" });
+  const f = await fixture();
   try {
     await f.app.emitEvent("member_joined_channel", { user: "UBOT", channel: "C1", event_ts: "100.1" }, "Ev-bot-join");
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -902,7 +900,7 @@ test("joining a channel with the toggle off (the default) posts only the welcome
 });
 
 test("flipping the toggle on creates the pinned header; flipping it off removes it", async () => {
-  const f = await fixture({ webUiPublicUrl: "https://claw.example.dev" });
+  const f = await fixture();
   try {
     assert.equal(f.core.headerPinChangeListeners.length, 1, "the plugin subscribes to toggle changes");
     f.core.headerPinScopes.add("channel:C1");
@@ -910,7 +908,7 @@ test("flipping the toggle on creates the pinned header; flipping it off removes 
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.deepEqual(
       f.client.pinnedByChannel.get("C1")?.map((m) => m.text),
-      ["Using Claude Opus 4.8 here. <https://claw.example.dev/projects/channel/C1|More settings>"],
+      ["Using Claude Opus 4.8 here."],
       "toggle-on posts and pins the header",
     );
     f.core.headerPinScopes.delete("channel:C1");
@@ -924,7 +922,7 @@ test("flipping the toggle on creates the pinned header; flipping it off removes 
 });
 
 test("a mention in a channel with no pinned header never creates one", async () => {
-  const f = await fixture({ webUiPublicUrl: "https://claw.example.dev" });
+  const f = await fixture();
   try {
     const mention = { channel: "C1", channel_type: "channel", user: "U1", text: "<@UBOT> hi", ts: "100.1" };
     f.client.messagesByChannel.set("C1", [mention]);
@@ -938,7 +936,7 @@ test("a mention in a channel with no pinned header never creates one", async () 
 });
 
 test("a scope's model change rewrites its channel's pinned header without waiting for a message", async () => {
-  const f = await fixture({ webUiPublicUrl: "https://claw.example.dev" });
+  const f = await fixture();
   try {
     assert.equal(f.core.modelChangeListeners.length, 1, "the plugin subscribes to core's model changes");
     f.core.headerPinScopes.add("channel:C1");
@@ -946,7 +944,7 @@ test("a scope's model change rewrites its channel's pinned header without waitin
       {
         ts: "50.0",
         user: "UBOT",
-        text: "Using Claude Sonnet 5 here. <https://claw.example.dev/projects/channel/C1|More settings>",
+        text: "Using Claude Sonnet 5 here.",
       },
     ]);
     for (const listener of f.core.modelChangeListeners) listener("channel:C1");
@@ -957,7 +955,7 @@ test("a scope's model change rewrites its channel's pinned header without waitin
         {
           channel: "C1",
           ts: "50.0",
-          text: "Using Claude Opus 4.8 here. <https://claw.example.dev/projects/channel/C1|More settings>",
+          text: "Using Claude Opus 4.8 here.",
         },
       ],
     );
@@ -969,8 +967,8 @@ test("a scope's model change rewrites its channel's pinned header without waitin
   }
 });
 
-test("an external guest's DM never reveals the model or the web surface", async () => {
-  const f = await fixture({ externalParticipants: true, webUiPublicUrl: "https://claw.example.dev" });
+test("an external guest's DM never reveals the model", async () => {
+  const f = await fixture({ externalParticipants: true });
   try {
     await f.app.emitMessage({ channel: "DX", channel_type: "im", user: "UX", text: "hello", ts: "100.1" });
     await new Promise((resolve) => setImmediate(resolve));
@@ -1633,7 +1631,6 @@ test("a gated account joining a channel stays silent — no welcome, no header",
   const f = await fixture({
     identityEmail: "1",
     allowFrom: ["staff@example.com"],
-    webUiPublicUrl: "https://claw.example.dev",
   });
   try {
     f.core.headerPinScopes.add("channel:C1");

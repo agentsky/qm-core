@@ -24,7 +24,6 @@ import type { SlackCoreClient } from "../api/slack-core-client.ts";
 import type { Delivery } from "../types.ts";
 import type { TurnFlow } from "./turn-flow.ts";
 import { cleanAgentReplyForSlack, stripSlackDirectives } from "./messaging.ts";
-import { cronIdOf } from "../sessions/session-store.ts";
 import { slackErrorCode } from "./payloads.ts";
 
 const DELIVERY_CLAIM_MS = 15_000;
@@ -51,7 +50,6 @@ function mergeSlackApiMs(body: unknown, slackApiMs: number | undefined): unknown
 
 export function createDeliveryPoller(deps: {
   core: SlackCoreClient;
-  webUiPublicUrl?: string;
   flow: TurnFlow;
   threads: ReturnType<typeof createThreadTracker>;
   clientForIdentity(identity: string): any;
@@ -143,19 +141,8 @@ export function createDeliveryPoller(deps: {
     core.ackDelivery(id, body as { recipientThreadRef?: string; slackApiMs?: number } | undefined);
 
   function deliveryFooter(d: Delivery): Array<Record<string, unknown>> {
-    const base = deps.webUiPublicUrl?.trim().replace(/\/+$/, "");
-    const id = d.provenance?.trigger === "cron" ? cronIdOf(d.provenance.sourceThreadRef) : null;
     const sender = d.destination.relaySender?.trim().replace(/^@+/, "");
-    const attribution = sender ? [{ type: "plain_text", text: `Sent for @${sender}`, emoji: false }] : [];
-    if (!base || !id) return attribution;
-    const title = (d.provenance?.sourceTitle?.trim() || "Cron")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;");
-    return [
-      ...attribution,
-      { type: "mrkdwn", text: `${title} · <${base}/crons/${encodeURIComponent(id)}|Settings>`, verbatim: true },
-    ];
+    return sender ? [{ type: "plain_text", text: `Sent for @${sender}`, emoji: false }] : [];
   }
 
   const deliveryTracker = createDeliveryTracker();
@@ -244,11 +231,7 @@ export function createDeliveryPoller(deps: {
                     .catch(swallowAs("slack: post upload-failure note", undefined));
                 }
               };
-              const messageFooter = deliveryFooter(d);
-              const footer = [
-                ...messageFooter,
-                ...(d.destination.debugFooter ? [{ type: "mrkdwn", text: d.destination.debugFooter }] : []),
-              ];
+              const footer = deliveryFooter(d);
               const taskList = d.destination.taskList?.length ? renderTaskList(d.destination.taskList) : undefined;
               const footerBlocks =
                 taskList || footer.length
@@ -258,7 +241,7 @@ export function createDeliveryPoller(deps: {
                       ...(footer.length ? [{ type: "context", elements: footer }] : []),
                     ]
                   : undefined;
-              if (!text.trim() && !(messageFooter.length && d.attachments?.length)) {
+              if (!text.trim() && !(footer.length && d.attachments?.length)) {
                 if (taskList) {
                   let preserved = false;
                   if (d.destination.editRef) {

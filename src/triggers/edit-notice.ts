@@ -2,6 +2,7 @@ import type { Cron, CronSchedule, Destination } from "../types.ts";
 import { principalDestination } from "../reach/reach.ts";
 import { personKeys } from "../directory/person.ts";
 import { errMessage } from "../util/errors.ts";
+import { xmlEscape } from "../util/message-tag.ts";
 import { createHash } from "node:crypto";
 
 export interface CronEditDetail {
@@ -77,7 +78,6 @@ export interface CronEditNoticeSink {
   directoryMember(
     principalId: string,
   ): Promise<{ displayName?: string; principalId?: string; slackId?: string } | null>;
-  cronAdminUrl(cron: Cron): string | undefined;
   channelName?(channelId: string): Promise<string | undefined>;
 }
 
@@ -99,11 +99,7 @@ export async function notifyOwnerOfCronEdit(
       .update(`${cron.id}:${args.editorId}:${args.editFingerprint}`)
       .digest("hex")
       .slice(0, 16);
-    const url = sink.cronAdminUrl(cron);
-    const label = cron.title ?? "shared";
-    let ref = "shared";
-    if (url) ref = `<${url}|${label}>`;
-    else if (cron.title) ref = `"${cron.title}"`;
+    const ref = cron.title ? `"${xmlEscape(cron.title)}"` : "shared";
     const [kind, scopeRef] = String(cron.ownerScopeId).split(":", 2) as [string, string | undefined];
     const place =
       kind === "channel" && scopeRef && sink.channelName

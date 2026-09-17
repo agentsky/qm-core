@@ -191,6 +191,16 @@ process.stdin.resume();
   return path;
 }
 
+async function closedMarker(dir: string): Promise<string> {
+  const path = join(dir, "closed");
+  let contents = "";
+  for (let attempt = 0; attempt < 100 && contents !== "closed"; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    contents = existsSync(path) ? readFileSync(path, "utf8") : "";
+  }
+  return contents;
+}
+
 function startupCancellationCodexBinary(dir: string): string {
   const path = join(dir, "startup-cancellation-codex");
   writeFileSync(
@@ -1103,9 +1113,7 @@ test("cancelling an OAuth startup after spawn closes the provider", async (t) =>
   assert.equal(existsSync(join(dir, "starts")), true);
   cancel.abort();
   assert.deepEqual(await turn, { reply: "", stopped: true });
-  for (let attempt = 0; attempt < 100 && !existsSync(join(dir, "closed")); attempt += 1)
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.equal(readFileSync(join(dir, "closed"), "utf8"), "closed");
+  assert.equal(await closedMarker(dir), "closed");
 });
 
 test("cancelling a pending Codex turn/start stops and closes the runtime", async (t) => {
@@ -1139,9 +1147,7 @@ test("cancelling a pending Codex turn/start stops and closes the runtime", async
   assert.equal(existsSync(join(dir, "turn-started")), true);
   cancel.abort();
   assert.deepEqual(await turn, { reply: "", stopped: true });
-  for (let attempt = 0; attempt < 100 && !existsSync(join(dir, "closed")); attempt += 1)
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.equal(readFileSync(join(dir, "closed"), "utf8"), "closed");
+  assert.equal(await closedMarker(dir), "closed");
 });
 
 test("per-user Codex turns run on their own app-server with derived auth, never the shared jail", async (t) => {

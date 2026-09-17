@@ -86,16 +86,15 @@ test("logins block: shows active with a check, inactive with its exact reauth co
   assert.doesNotMatch(out, /AWS/);
 });
 
-test("connected-apps block: lists only admin-configured providers and the exact connection URL", () => {
-  const url = "https://qm.example/keychain";
-  const unavailable = renderConnectedAppsBlock(null, [], url);
+test("connected-apps block: lists only admin-configured providers", () => {
+  const unavailable = renderConnectedAppsBlock(null, []);
   assert.match(unavailable, /No direct OAuth app connections are configured/);
   assert.match(unavailable, /does not describe app access through separately authorized credentials/);
 
   const none: ConnectorStatusRecord = { principalId: "U1", checkedAt: 1, providers: { google: { connected: false } } };
-  const available = renderConnectedAppsBlock(none, ["google"], url);
+  const available = renderConnectedAppsBlock(none, ["google"]);
   assert.match(available, /Available to connect: Google/);
-  assert.match(available, /https:\/\/qm\.example\/keychain/);
+  assert.doesNotMatch(available, /https?:\/\//);
   assert.doesNotMatch(available, /Slack|Notion/);
 
   const some: ConnectorStatusRecord = {
@@ -103,7 +102,7 @@ test("connected-apps block: lists only admin-configured providers and the exact 
     checkedAt: 1,
     providers: { google: { connected: true }, slack: { connected: true }, notion: { connected: false } },
   };
-  const out = renderConnectedAppsBlock(some, ["google"], url);
+  const out = renderConnectedAppsBlock(some, ["google"]);
   assert.match(out, /## Connected apps/);
   assert.match(out, /Connected: Google/);
   assert.doesNotMatch(out, /Slack|Notion/);

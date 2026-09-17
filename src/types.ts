@@ -188,7 +188,6 @@ export interface Destination {
   delete?: { messageTs: string };
   pin?: { messageTs: string; remove?: boolean };
   identity?: string;
-  debugFooter?: string;
   webTranscript?: { kind: "reply" } | { kind: "turn_failure"; notBefore: number; runId?: string };
 }
 
@@ -688,7 +687,6 @@ export interface TurnResult {
   reactions?: string[];
   reason?: string;
   refusalKind?: "security_quarantine" | "session_busy";
-  adminUrl?: string;
   runId?: string;
   steered?: true;
   stopped?: boolean;

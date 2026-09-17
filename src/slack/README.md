@@ -238,10 +238,9 @@ your per-dev name + tokens live only in your local app and your gitignored `.env
 
 ## Notes / next
 
-- The failed-turn admin link needs **no Slack config**: when a turn comes back `refused`
-  with a real failure, the core supplies the admin transcript deep link (`TurnResult.adminUrl`,
-  built from the session org's portal) and the plugin appends it as `Full error:`. Absent when
-  there's nothing to link (boundary refusals, no portal configured).
+- Failed turns carry no link: when a turn comes back `refused` with a real failure the plugin
+  posts the user-facing clause alone (`refusalNote`). There is no browser surface to deep-link
+  into, and the internal reason never reaches Slack.
 - Channel audience is enumerated per-member: `computeChannelAudience` (lib.ts) resolves
   the full member list (with a Slack-Connect / guest external marker, and an actor-only
   fallback when membership is unreadable) so the core's audience-floor is fine-grained.

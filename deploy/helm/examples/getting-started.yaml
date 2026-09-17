@@ -1,0 +1,22 @@
+image:
+  repository: ghcr.io/yc-software/qm
+  tag: <release-sha>
+
+publicUrl: https://qm.example.com
+
+ingress:
+  enabled: true
+  hosts: [qm.example.com]
+  className: nginx
+  clusterIssuer: letsencrypt-prod
+
+secretEnv:
+  DATABASE_URL: postgres://...
+  ANTHROPIC_API_KEY: sk-ant-...
+  CORE_SIGNING_SECRET: <random 32+ bytes>
+  CAPABILITY_SECRET: <random 32+ bytes>
+  PORTAL_IDENTITY_SECRET: <random 32+ bytes>
+  CONNECTOR_SECRET_KEY: <random 32+ bytes>
+  SKILL_SIGNING_SECRET: <random 32+ bytes>
+  ADMIN_GRANTS: you@example.com:org_admin
+  SANDBOX_BACKEND: local

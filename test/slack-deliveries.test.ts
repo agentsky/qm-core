@@ -15,7 +15,6 @@ const uploadedNames = (uploads: Record<string, unknown>[]) =>
 async function deliver(
   destination: Record<string, unknown> = {},
   sourceThreadRef?: string,
-  webUiPublicUrl?: string,
   text = "two screenshots and the notes",
   row: { createdAt?: number; history?: Record<string, unknown>[]; loseAck?: boolean } = {},
 ) {
@@ -71,7 +70,6 @@ async function deliver(
   };
   const poller = createDeliveryPoller({
     core: core as never,
-    webUiPublicUrl,
     flow: {
       inFlightRuns: new Set<string>(),
       fetchBlobFromCore: async (id: string) => Buffer.from(id),
@@ -86,33 +84,12 @@ async function deliver(
 }
 
 for (const type of ["slack", "group", "principal"]) {
-  test(`${type} cron deliveries include settings below the complete message and preserve attachments`, async () => {
-    const text = "Scheduled update. ".repeat(250);
-    const { posts, uploads, acknowledgements } = await deliver(
-      { type },
-      "cron:morning report:fire:123",
-      "https://agent.example/web-ui/",
-      text,
-    );
+  test(`${type} cron deliveries carry no footer and preserve attachments`, async () => {
+    const text = "Scheduled update. ".repeat(100);
+    const { posts, uploads, acknowledgements } = await deliver({ type }, "cron:morning report:fire:123", text);
     assert.equal(posts.length, 1);
-    const blocks = posts[0]!.blocks as Array<{ type: string; text?: { text: string }; elements?: unknown[] }>;
-    assert.equal(
-      blocks
-        .filter((b) => b.type === "section")
-        .map((b) => b.text!.text)
-        .join(""),
-      text,
-    );
-    assert.deepEqual(blocks.at(-1), {
-      type: "context",
-      elements: [
-        {
-          type: "mrkdwn",
-          text: "Weekly &lt;project&gt; &amp; check-in · <https://agent.example/web-ui/crons/morning%20report|Settings>",
-          verbatim: true,
-        },
-      ],
-    });
+    assert.equal(posts[0]!.text, text);
+    assert.equal(posts[0]!.blocks, undefined);
     assert.equal(uploads.length, 1);
     assert.equal(uploads[0]!.initial_comment, undefined);
     assert.deepEqual(
@@ -123,7 +100,7 @@ for (const type of ["slack", "group", "principal"]) {
   });
 }
 
-test("cron deliveries omit settings when the web UI is unavailable", async () => {
+test("cron deliveries post plain text with no footer blocks", async () => {
   const { posts, uploads } = await deliver({}, "cron:c1:fire:123");
   assert.equal(posts.length, 1);
   assert.equal(posts[0]!.blocks, undefined);
@@ -155,11 +132,11 @@ for (const type of ["slack", "group", "principal"]) {
 
   test(`${type} restart after a lost acknowledgement reuses the actual posted message and files`, async () => {
     const history: Record<string, unknown>[] = [];
-    const first = await deliver({ type }, undefined, undefined, undefined, { history, loseAck: true });
+    const first = await deliver({ type }, undefined, undefined, { history, loseAck: true });
     assert.equal(first.posts.length, 1);
     assert.equal(first.uploads.length, 1);
     assert.deepEqual(first.acknowledgements, []);
-    const { probes, posts, uploads, acknowledgements } = await deliver({ type }, undefined, undefined, undefined, {
+    const { probes, posts, uploads, acknowledgements } = await deliver({ type }, undefined, undefined, {
       createdAt: Date.now() - 60_000,
       history,
     });
@@ -172,7 +149,7 @@ for (const type of ["slack", "group", "principal"]) {
 
   test(`${type} long replies with attachments take the splitting path instead of one upload comment`, async () => {
     const text = "a long reply ".repeat(Math.ceil(SLACK_POST_SPLIT_LIMIT / 12) + 20);
-    const { posts, uploads } = await deliver({ type }, undefined, undefined, text);
+    const { posts, uploads } = await deliver({ type }, undefined, text);
 
     assert.ok(posts.length > 1, `expected the text split across posts, got ${posts.length}`);
     assert.equal(uploads.length, 1);
@@ -192,24 +169,10 @@ for (const type of ["slack", "group", "principal"]) {
   });
 }
 
-test("ordinary deliveries omit cron settings even with a configured web UI", async () => {
-  const { posts } = await deliver({ unfurlLinks: false }, "dm:D1", "https://agent.example/web-ui");
-  assert.equal(posts[0]!.blocks, undefined);
-});
-
 for (const type of ["slack", "group", "principal"]) {
-  test(`${type} attachment-only cron deliveries use a valid footer without an empty message section`, async () => {
-    const { posts, uploads, acknowledgements } = await deliver(
-      { type },
-      "cron:c1:fire:123",
-      "https://agent.example",
-      "",
-    );
-    assert.equal(posts.length, 1);
-    assert.deepEqual(
-      (posts[0]!.blocks as Array<{ type: string }>).map((block) => block.type),
-      ["context"],
-    );
+  test(`${type} attachment-only cron deliveries post the files with no footer message`, async () => {
+    const { posts, uploads, acknowledgements } = await deliver({ type }, "cron:c1:fire:123", "");
+    assert.equal(posts.length, 0);
     assert.equal(uploads.length, 1);
     assert.deepEqual(
       uploadedNames(uploads),
@@ -222,7 +185,7 @@ for (const type of ["slack", "group", "principal"]) {
 for (const type of ["group", "principal"]) {
   for (const sender of ["josh", "@josh", "<@U123> & <!channel>"]) {
     test(`${type} relay attribution is a plain-text footer for ${sender}`, async () => {
-      const { posts } = await deliver({ type, relaySender: sender }, undefined, undefined, "Ship it");
+      const { posts } = await deliver({ type, relaySender: sender }, undefined, "Ship it");
       assert.equal(posts.length, 1);
       assert.equal(posts[0]!.text, "Ship it");
       assert.deepEqual(posts[0]!.blocks, [
@@ -235,19 +198,13 @@ for (const type of ["group", "principal"]) {
     });
   }
 
-  test(`${type} attachment-only relay retains its attribution alongside cron settings`, async () => {
-    const { posts, uploads } = await deliver(
-      { type, relaySender: "josh" },
-      "cron:c1:fire:123",
-      "https://agent.example/web-ui",
-      "",
-    );
+  test(`${type} attachment-only relay retains its attribution`, async () => {
+    const { posts, uploads } = await deliver({ type, relaySender: "josh" }, "cron:c1:fire:123", "");
     assert.equal(posts.length, 1);
     const blocks = posts[0]!.blocks as Array<{ type: string; elements: Array<{ type: string; text: string }> }>;
-    assert.equal(blocks.length, 1);
-    assert.equal(blocks[0]!.type, "context");
-    assert.deepEqual(blocks[0]!.elements[0], { type: "plain_text", text: "Sent for @josh", emoji: false });
-    assert.equal(blocks[0]!.elements[1]!.type, "mrkdwn");
+    assert.deepEqual(blocks, [
+      { type: "context", elements: [{ type: "plain_text", text: "Sent for @josh", emoji: false }] },
+    ]);
     assert.ok(uploads.length);
   });
 }
@@ -255,7 +212,7 @@ for (const type of ["group", "principal"]) {
 for (const type of ["group", "principal"]) {
   test(`${type} long relays split within Slack's block limit and keep the footer last`, async () => {
     const text = "x".repeat(145_000);
-    const { posts } = await deliver({ type, relaySender: "josh" }, undefined, undefined, text);
+    const { posts } = await deliver({ type, relaySender: "josh" }, undefined, text);
     assert.equal(posts.length, 2);
     const blocks = posts.flatMap((post) => {
       const batch = post.blocks as Array<{ type: string; text?: { text: string }; elements?: unknown[] }>;

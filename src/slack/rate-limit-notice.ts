@@ -9,7 +9,7 @@ interface Recipient {
   user: string;
 }
 
-export function createSlackRateLimitNotice(opts: { managed?: boolean; setupUrl?: string; client?: any }) {
+export function createSlackRateLimitNotice(opts: { managed?: boolean; client?: any }) {
   const recentlyNotified = new LRUCache<string, true>({ max: 1000, ttl: 60_000, ttlResolution: 0 });
   const active = new AsyncLocalStorage<{ client: any; recipient: Recipient; sent: boolean } | undefined>();
   return {
@@ -19,7 +19,7 @@ export function createSlackRateLimitNotice(opts: { managed?: boolean; setupUrl?:
     async observe(error: unknown): Promise<void> {
       const request = active.getStore();
       if (!request || request.sent || !opts.managed) return;
-      const text = slackHistoryRateLimitMessage(error, { ...opts, format: "slack" });
+      const text = slackHistoryRateLimitMessage(error);
       if (!text) return;
       request.sent = true;
       try {

@@ -1,4 +1,3 @@
-import { suggestedActivityRoutes } from "./suggested-activities.ts";
 import { runtimeFallback, runtimeConfigBody, webuiModelEnabled } from "../runtime-config.ts";
 import { sessionSharingRoutes } from "./session-sharing.ts";
 import type { Grant, ScopeId } from "../../types.ts";
@@ -1284,7 +1283,6 @@ export async function postSoul(ctx: ApiCtx): Promise<void> {
 
 export const surfaceRoutes: ReadonlyArray<Route<ApiCtx>> = [
   ...sessionSharingRoutes,
-  ...suggestedActivityRoutes,
   { method: "POST", path: "/v1/session-cap", auth: "source", handle: sessionCapability },
   { method: "GET", path: "/v1/sessions/search", auth: "source", handle: searchSessions },
   { method: "POST", path: "/v1/sessions/:id/title", auth: "source", handle: regenerateSessionTitle },

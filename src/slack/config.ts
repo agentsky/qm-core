@@ -33,7 +33,6 @@ export interface SlackPluginConfig {
   ackCapMs?: number;
   userToken?: string;
   copilotBotToken?: string;
-  webUiPublicUrl?: string;
   identityEmail?: string;
   logLevel?: string;
   userSnapshotTtlMs?: number;
@@ -85,7 +84,6 @@ export function slackPluginConfigFromEnv(
     ...opt("ackCapMs", num(env.SLACK_ACK_CAP_MS)),
     ...opt("userToken", env.SLACK_USER_TOKEN),
     ...opt("copilotBotToken", env.SLACK_COPILOT_BOT_TOKEN),
-    ...opt("webUiPublicUrl", env.WEB_UI_PUBLIC_URL),
     ...opt("sharedServiceUrl", env.QM_SLACK_SERVICE_URL),
     ...opt("identityEmail", env.SLACK_IDENTITY_EMAIL),
     ...(() => {
@@ -144,7 +142,6 @@ export function slackAccountConfigsFromEnv(env: Record<string, string | undefine
       SLACK_IDENTITY_EMAIL: str(a.identityEmail) ?? "1",
       SLACK_LOG_LEVEL: env.SLACK_LOG_LEVEL,
       SLACK_CONTEXT_SOURCE: env.SLACK_CONTEXT_SOURCE,
-      WEB_UI_PUBLIC_URL: env.WEB_UI_PUBLIC_URL,
       QM_SLACK_SERVICE_URL: env.QM_SLACK_SERVICE_URL,
     };
     const config = slackPluginConfigFromEnv(accountEnv);

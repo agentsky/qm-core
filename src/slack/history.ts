@@ -32,8 +32,6 @@ export function createSlackHistoryReader(deps: {
   core: SlackCoreClient;
   source?: SlackContextSource;
   ids: BotIdentity;
-  managed?: boolean;
-  setupUrl?: string;
   historyClient?: { conversations: { history(args: any): Promise<unknown>; replies(args: any): Promise<unknown> } };
 }): SlackHistoryReader {
   async function liveHistory(
@@ -285,7 +283,7 @@ export function createSlackHistoryReader(deps: {
       return {
         raw: mirrored,
         hasMore: true,
-        note: [MIRROR_CONTEXT_NOTE, slackHistoryRateLimitMessage(error, deps)].filter(Boolean).join(" "),
+        note: [MIRROR_CONTEXT_NOTE, slackHistoryRateLimitMessage(error)].filter(Boolean).join(" "),
       };
     }
   };

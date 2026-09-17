@@ -473,7 +473,6 @@ export interface App {
   directoryMember(principalId: string): Promise<DirectoryMember | null>;
   samePerson(a: string, b: string): Promise<boolean>;
   personMatcher(actorId: string): Promise<(id: string) => Promise<boolean>>;
-  cronAdminUrl(cron: Cron): string | undefined;
   channelName(channelId: string): Promise<string | undefined>;
   ambientJudge?(systemPrompt: string, prompt: string): Promise<string | undefined>;
   directoryMembers(): Promise<DirectoryMember[]>;

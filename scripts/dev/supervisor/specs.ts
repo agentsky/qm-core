@@ -38,7 +38,8 @@ export function buildChildSpecs(i: SpecInputs): ChildSpec[] {
               DEV_INTROSPECTION: "1",
               DEV_HEALTH_PORT: String(i.ports.slackHealth),
             }
-          : {}),
+          : { SLACK_BOT_TOKEN: "", SLACK_APP_TOKEN: "" }),
+        DEV_INSTANCE_NO_SLACK: i.slack ? "0" : "1",
         CORE_ORG_ID: orgId,
         SHUTDOWN_DRAIN_MS: "2000",
       },

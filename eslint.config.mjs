@@ -13,6 +13,7 @@ export default tseslint.config(
       "docs/",
       ".claude/",
       ".context/",
+      ".generated/",
     ],
   },
   js.configs.recommended,

@@ -428,11 +428,11 @@ test("supervised children share the selected dev org", () => {
   assert.equal(buildChildSpecs(inputs).find((spec) => spec.name === "core")!.env.ORG_ID, "acme");
 });
 
-test("child specs omit Slack env when no Slack tokens are supplied", () => {
+test("child specs disable environment Slack tokens when no Slack tokens are supplied", () => {
   const inputs: SpecInputs = {
     worktree: "/tmp/worktree",
     ports: slotPorts("pool1"),
-    baseEnv: {},
+    baseEnv: { SLACK_BOT_TOKEN: "inherited-bot", SLACK_APP_TOKEN: "inherited-app" },
     watch: false,
     sessionStore: "memory",
     runStore: "memory",
@@ -441,11 +441,20 @@ test("child specs omit Slack env when no Slack tokens are supplied", () => {
     sandboxEnv: {},
   };
   const core = buildChildSpecs(inputs).find((spec) => spec.name === "core")!;
-  assert.equal(core.env.SLACK_BOT_TOKEN, undefined);
-  assert.equal(core.env.SLACK_APP_TOKEN, undefined);
+  assert.equal(core.env.DEV_INSTANCE_NO_SLACK, "1");
+  assert.equal(core.env.SLACK_BOT_TOKEN, "");
+  assert.equal(core.env.SLACK_APP_TOKEN, "");
   assert.equal(core.env.DEV_INTROSPECTION, undefined);
   assert.equal(core.env.DEV_HEALTH_PORT, undefined);
   assert.equal(core.env.CORE_ORG_ID, "acme");
+  inputs.slack = { botToken: "xoxb-test", appToken: "xapp-test" };
+  const slackOnly = buildChildSpecs(inputs);
+  assert.deepEqual(
+    slackOnly.map((spec) => spec.name),
+    ["core"],
+  );
+  assert.equal(slackOnly[0]!.env.SLACK_BOT_TOKEN, "xoxb-test");
+  assert.equal(slackOnly[0]!.env.DEV_INSTANCE_NO_SLACK, "0");
 });
 
 test("formatAge renders the bash-compatible shapes", () => {

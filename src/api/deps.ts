@@ -1,3 +1,4 @@
+import type { BackgroundOwnershipStore } from "../runs/background-ownership.ts";
 import type { ManagedSlack } from "../surfaces/slack-managed.ts";
 import type { DirectFileUploads } from "../files/direct-file-upload.ts";
 import type { SandboxResources } from "../sandbox/sandbox-resources.ts";
@@ -69,6 +70,7 @@ import type { AdvisoryLock } from "../persistence/advisory-lock.ts";
 import type { SlackInstallationStore, SlackSocketAppIdReader } from "../surfaces/slack-installation.ts";
 
 export interface ServerDeps {
+  composioFetch?: typeof fetch;
   production?: boolean;
   allowUnauthenticatedCore?: boolean;
   signingSecret?: string;
@@ -77,6 +79,7 @@ export interface ServerDeps {
   requireSignedPortalIdentity?: boolean;
   control: ControlService;
   replayDedupe?: ReplayDedupe;
+  deploymentLiveSmoke?: () => Promise<void>;
   connectorTokens?: ConnectorTokenStore;
   managedSlack?: ManagedSlack;
   slackInstallation?: SlackInstallationStore;
@@ -158,6 +161,8 @@ export interface ServerDeps {
   sessionShareBytes?: DurableByteStore;
   environments?: EnvironmentStore;
   deploymentLayer?: DeploymentLayerStore;
+  backgroundOwnership?: { store: BackgroundOwnershipStore; instanceId: string; deploymentId: string };
+  deploymentControlSecret?: string;
   credentialServices?: () => readonly string[];
   brokeredServices?: () => readonly string[];
   deployDialTimeoutMs?: number;

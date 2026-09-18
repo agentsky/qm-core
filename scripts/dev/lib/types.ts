@@ -64,6 +64,7 @@ export interface BootPhaseEvent {
 
 export interface BootResult {
   ok: boolean;
+  webEnabled?: boolean;
   slackEnabled?: boolean;
   reason?: string;
   slot: string;
@@ -91,6 +92,7 @@ export interface StatusReport {
   sandbox: { backend: string; detail: string };
   durability: { sessionStore: string; runStore: string; databaseUrl: boolean };
   harness: string;
+  webEnabled?: boolean;
   slackEnabled: boolean;
   watch: boolean;
   turnsLive: boolean;
@@ -108,6 +110,7 @@ export interface BootSpec {
   canaryChannel?: string;
   strict: boolean;
   slack?: boolean;
+  web?: boolean;
 }
 
 export interface LeaseInfo {

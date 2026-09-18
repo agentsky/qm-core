@@ -1,3 +1,4 @@
+import { SlackPluginStartCleanupError } from "../surfaces/slack-runtime.ts";
 import { createSlackRateLimitNotice } from "./rate-limit-notice.ts";
 import { createSlackHistoryReader } from "./history.ts";
 import { errMessage, swallow, swallowAs } from "../util/errors.ts";
@@ -210,8 +211,9 @@ export async function startSlackPlugin(
     ...(cfg.userCacheTtlMs ? { userCacheTtlMs: cfg.userCacheTtlMs } : {}),
   });
   const mirror = createMirror({ core, ids, directory, externalParticipantsEnabled });
+  const managed = Boolean(cfg.installationId && cfg.sharedServiceUrl?.trim());
   const rateLimitNotice = createSlackRateLimitNotice({
-    managed: Boolean(cfg.sharedServiceUrl?.trim()),
+    managed,
     client: new WebClient(BOT_TOKEN, { ...CLIENT_OPTIONS, ...HISTORY_NO_RETRY, timeout: 5000 }),
   });
   const historyApi = new WebClient(BOT_TOKEN, { ...CLIENT_OPTIONS, ...HISTORY_NO_RETRY });
@@ -231,6 +233,8 @@ export async function startSlackPlugin(
     ) as Pick<typeof historyApi.conversations, "history" | "replies">,
   };
   const readHistory = createSlackHistoryReader({
+    managed,
+    historyLimit: cfg.historyLimit,
     core,
     ids,
     historyClient,
@@ -342,6 +346,8 @@ export async function startSlackPlugin(
     ensureHeader,
   });
   const surfaceContext = createSurfaceContextFulfiller({
+    historyLimit: cfg.historyLimit,
+    historyRateLimitOptions: { managed },
     rateLimitNotice,
     historyClient,
     readHistory,
@@ -385,7 +391,13 @@ export async function startSlackPlugin(
   } catch (err) {
     stopped = true;
     await devIntrospection?.close().catch(swallowAs("slack: dev-introspection close on failed start", undefined));
-    await app.stop().catch(swallowAs("slack: app.stop on failed start", undefined));
+    try {
+      await app.stop();
+    } catch (cleanupError) {
+      throw new SlackPluginStartCleanupError(err, cleanupError, async () => {
+        await app.stop();
+      });
+    }
     throw err;
   }
   devIntrospection?.ready({ connectedAs: auth.user ?? "", botUserId: ids.botUserId, teamId: ids.ownTeamId });
@@ -470,11 +482,12 @@ export async function startSlackPlugin(
   return {
     async stop(): Promise<void> {
       if (stopped) {
+        await replaySweeper?.stop();
         await app.stop();
         return;
       }
       stopped = true;
-      replaySweeper?.stop();
+      await replaySweeper?.stop();
       if (deliveriesTimer) clearInterval(deliveriesTimer);
       if (emojiCatalogTimer) clearInterval(emojiCatalogTimer);
       if (followerRetry) clearTimeout(followerRetry);

@@ -10,6 +10,11 @@
     "npm": ">=11.10.0"
   },
   "scripts": {
+    "build:connector-sdk": "npm ci --prefix deploy/connector-sdk --ignore-scripts --no-audit --no-fund && node deploy/connector-sdk/build.mjs",
+    "prestart": "npm run build:connector-sdk",
+    "predev": "npm run build:connector-sdk",
+    "preworker": "npm run build:connector-sdk",
+    "pretest": "npm run build:connector-sdk",
     "start": "node --env-file-if-exists=.env src/index.ts",
     "dev": "SHUTDOWN_DRAIN_MS=2000 node --env-file-if-exists=.env --watch src/index.ts",
     "dev-instance": "bash scripts/dev-instance.sh up",
@@ -31,8 +36,9 @@
     "smoke:google-oauth": "node scripts/google-oauth-smoke.ts",
     "smoke:service-cred": "node scripts/service-credential-livetest.ts",
     "smoke:local-sandbox": "node scripts/local-sandbox-smoke.ts",
+    "build:modal-image": "node scripts/modal-build-image.ts",
     "sandbox:local:build": "bash scripts/local-sandbox-build.sh",
-    "test:pg": "node --test --test-concurrency=1 test/postgres-swarms.test.ts test/postgres-store.test.ts test/postgres-grant-store.test.ts test/postgres-admin-grants.test.ts test/postgres-file-artifact-store.test.ts test/postgres-file-upload-store.test.ts test/postgres-directory-store.test.ts test/postgres-map.test.ts test/deploy-store-pg.test.ts test/postgres-cron-fires.test.ts test/postgres-migration-adoption.test.ts test/postgres-migrations.test.ts test/postgres-migration-startup.test.ts test/cron-queue.test.ts test/postgres-metrics-sink.test.ts test/postgres-error-log.test.ts test/postgres-audit-log.test.ts test/postgres-budget.test.ts test/postgres-rate-limiter.test.ts test/postgres-credential-usage-sink.test.ts test/postgres-config-store.test.ts test/postgres-delivery-store.test.ts test/postgres-replay-dedupe.test.ts test/postgres-egress-audit-sink.test.ts test/postgres-memory-service.test.ts test/run-signal-store.test.ts test/postgres-listener.test.ts test/postgres-run-activity-store.test.ts test/leader-lease.test.ts test/advisory-lock.test.ts test/persistence-init-retry.test.ts test/migrate-principals.test.ts test/postgres-surface-cache.test.ts test/postgres-instance-registry.test.ts test/run-retry-delay.test.ts test/postgres-run-stream.test.ts test/migrate-main.test.ts",
+    "test:pg": "node --test --test-concurrency=1 test/postgres-swarms.test.ts test/postgres-store.test.ts test/postgres-grant-store.test.ts test/postgres-admin-grants.test.ts test/postgres-file-artifact-store.test.ts test/postgres-file-upload-store.test.ts test/postgres-directory-store.test.ts test/postgres-map.test.ts test/postgres-background-ownership.test.ts test/postgres-resource-search.test.ts test/deploy-store-pg.test.ts test/postgres-cron-fires.test.ts test/postgres-migration-adoption.test.ts test/postgres-migrations.test.ts test/postgres-migration-startup.test.ts test/cron-queue.test.ts test/postgres-metrics-sink.test.ts test/postgres-error-log.test.ts test/postgres-audit-log.test.ts test/postgres-budget.test.ts test/postgres-rate-limiter.test.ts test/postgres-credential-usage-sink.test.ts test/postgres-config-store.test.ts test/postgres-delivery-store.test.ts test/postgres-replay-dedupe.test.ts test/postgres-egress-audit-sink.test.ts test/postgres-memory-service.test.ts test/run-signal-store.test.ts test/postgres-listener.test.ts test/postgres-run-activity-store.test.ts test/leader-lease.test.ts test/advisory-lock.test.ts test/persistence-init-retry.test.ts test/migrate-principals.test.ts test/postgres-surface-cache.test.ts test/slack-mirror-fidelity.test.ts test/postgres-instance-registry.test.ts test/run-retry-delay.test.ts test/postgres-run-stream.test.ts test/migrate-main.test.ts",
     "livetest": "node scripts/api-livetest.ts",
     "bench:memory": "node --env-file-if-exists=.env scripts/memory-bench.ts",
     "prepare": "node .husky/install.mjs",
@@ -42,7 +48,8 @@
     "lint": "eslint .",
     "lint:ox": "oxlint --deny-warnings src plugins scripts test",
     "dev-instance:doctor": "bash scripts/dev-instance.sh doctor",
-    "lint:knip": "knip"
+    "lint:knip": "knip",
+    "migrate:transcript-tape": "node scripts/migrate-transcript-tape.ts"
   },
   "lint-staged": {
     "*": "prettier --write --ignore-unknown"
@@ -57,6 +64,7 @@
     "@openai/codex": "0.144.5",
     "@opencode-ai/plugin": "1.17.18",
     "@opencode-ai/sdk": "1.17.18",
+    "@sentry/node": "10.75.0",
     "@slack/bolt": "^4.7.3",
     "@slack/socket-mode": "^2.0.7",
     "@slack/web-api": "^7.19.0",
@@ -67,6 +75,7 @@
     "jose": "^6.2.3",
     "lru-cache": "^11.5.2",
     "modal": "^0.10.0",
+    "officeparser": "^8.0.0",
     "opencode-ai": "1.17.18",
     "pg": "^8.13.1",
     "pg-boss": "^12.26.1",
@@ -88,8 +97,8 @@
     "fast-json-stringify": {
       "fast-uri": "4.1.4"
     },
-    "protobufjs": "7.6.5",
-    "undici": "$undici"
+    "undici": "$undici",
+    "protobufjs": "7.6.5"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

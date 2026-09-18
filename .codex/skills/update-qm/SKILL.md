@@ -56,8 +56,8 @@ node scripts/update-qm.ts merge
 - drops every file upstream added under a directory the fork removed;
 - rewrites side-effect imports of removed files the way the fork's own history did
   (`import "./support/auto-fake-sprites.ts"` becomes the smolmachines fixture because
-  the fork made that substitution in every test), and strips those with no precedent,
-  since a bare import binds nothing;
+  the fork made that substitution in every test), or to the path git shows the fork
+  renamed the file to, and strips those with neither, since a bare import binds nothing;
 - leaves every other conflict for you;
 - writes `.generated/update-qm/report.md` with the upstream commit range, the lists
   above, the conflicts left, and the new upstream files it kept, marking any kept file

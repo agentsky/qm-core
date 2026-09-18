@@ -155,7 +155,7 @@ interface Rewrite {
   files: string[];
 }
 
-function rewriteSideEffectImports(sync: Sync): Rewrite {
+function rewriteSideEffectImports(sync: Sync, renames: Map<string, string>): Rewrite {
   const replacements = fixtureReplacements(sync);
   const unmerged = new Set(unmergedFiles());
   const rewritten: string[] = [];
@@ -172,7 +172,7 @@ function rewriteSideEffectImports(sync: Sync): Rewrite {
     for (const ref of refs) {
       const removed = ref.sideEffect ? removedImport(sync, file, ref.specifier) : undefined;
       if (!removed) continue;
-      const replacement = replacements.get(removed.target);
+      const replacement = replacements.get(removed.target) ?? renames.get(removed.target);
       const at = ref.line - 1;
       if (replacement !== undefined && !present.has(replacement) && lines[at] !== undefined) {
         const specifier = relativeSpecifier(file, replacement);
@@ -264,7 +264,7 @@ function merge(): void {
   }
   gitBatch(["rm", "-qf"], [...deleted, ...droppedPaths]);
   for (const file of [...deleted, ...droppedPaths]) sync.files.delete(file);
-  const imports = rewriteSideEffectImports(sync);
+  const imports = rewriteSideEffectImports(sync, renames);
   gitBatch(["add"], imports.files);
   const unmerged = new Set(unmergedFiles());
   const dangling = danglingImports(
@@ -301,7 +301,7 @@ ${bullets(deleted)}
 
 ${bullets(dropped)}
 
-## Side-effect imports rewritten the way the fork's history did
+## Side-effect imports rewritten to the fork's replacement or renamed path
 
 ${bullets(imports.rewritten)}
 

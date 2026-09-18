@@ -295,6 +295,7 @@ test("production refuses missing, placeholder, or weak signing keys", () => {
 
 test("defaults come from CONFIG_DEFAULTS, set exactly once", () => {
   const def = loadConfig({});
+  assert.equal(CONFIG_DEFAULTS.workers, 16);
   assert.equal(def.workers, CONFIG_DEFAULTS.workers);
   assert.equal(def.rateLimitPerWindow, CONFIG_DEFAULTS.rateLimitPerWindow);
   assert.equal(def.rateLimitWindowMs, CONFIG_DEFAULTS.rateLimitWindowMs);
@@ -335,6 +336,11 @@ test("PUBLIC_API_URL is not treated as the human-facing web URL", () => {
   assert.equal(apiOnly.apiBaseUrl, "https://agent-api.example");
   assert.equal(apiOnly.publicUrl, "https://agent-api.example");
   assert.equal(apiOnly.publicWebUrl, undefined);
+
+  const disabledWeb = loadConfig({ PUBLIC_API_URL: "https://agent-api.example", PUBLIC_WEB_URL: "" });
+  assert.equal(disabledWeb.apiBaseUrl, "https://agent-api.example");
+  assert.equal(disabledWeb.publicUrl, "https://agent-api.example");
+  assert.equal(disabledWeb.publicWebUrl, undefined);
 
   const web = loadConfig({ PUBLIC_API_URL: "https://agent-api.example", PUBLIC_WEB_URL: "https://portal.example" });
   assert.equal(web.apiBaseUrl, "https://agent-api.example");
@@ -621,4 +627,27 @@ test("sandbox scope defaults parse exact scope kinds and reject malformed mappin
     '{"personal":""}',
   ])
     assert.throws(() => loadConfig({ ...credentials, SANDBOX_SCOPE_BACKENDS: value }));
+});
+
+test("background ownership requires durable storage and an independent deployment authority", () => {
+  const env = {
+    BACKGROUND_DEPLOYMENT_ID: "core:release-a",
+    DATABASE_URL: "postgres://localhost/test",
+    CORE_SIGNING_SECRET: "source-signing-secret-0123456789abcdef",
+    DEPLOYMENT_CONTROL_SECRET: "deployment-control-secret-0123456789abcdef",
+  };
+  const config = loadConfig(env);
+  assert.equal(config.backgroundDeploymentId, env.BACKGROUND_DEPLOYMENT_ID);
+  assert.equal(config.deploymentControlSecret, env.DEPLOYMENT_CONTROL_SECRET);
+  assert.equal(config.backgroundWorkEnabled, true);
+  assert.equal(loadConfig({ ...env, BACKGROUND_WORK_ENABLED: "false" }).backgroundWorkEnabled, false);
+  assert.throws(() => loadConfig({ ...env, DATABASE_URL: "" }), /DATABASE_URL/);
+  assert.throws(() => loadConfig({ ...env, DEPLOYMENT_CONTROL_SECRET: "short" }), /distinct DEPLOYMENT_CONTROL_SECRET/);
+  assert.throws(
+    () => loadConfig({ ...env, DEPLOYMENT_CONTROL_SECRET: env.CORE_SIGNING_SECRET }),
+    /distinct DEPLOYMENT_CONTROL_SECRET/,
+  );
+  assert.throws(() => loadConfig({ ...env, BACKGROUND_DEPLOYMENT_ID: " " }), /BACKGROUND_DEPLOYMENT_ID/);
+  assert.throws(() => loadConfig({ ...env, CORE_SIGNING_SECRET: "short" }), /CORE_SIGNING_SECRET/);
+  assert.throws(() => loadConfig({ ...env, DEPLOYMENT_CONTROL_SECRET: " ".repeat(32) }), /DEPLOYMENT_CONTROL_SECRET/);
 });

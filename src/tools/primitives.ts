@@ -30,6 +30,12 @@ import {
 import type { WorkspaceStore } from "../workspace/workspace-store.ts";
 import type { BotPolicy } from "../surface-cache/channel-policy-store.ts";
 import type { GapPhase, GapWork } from "../sessions/session-store.ts";
+import type {
+  SessionOpenInput,
+  SessionReadInput,
+  SessionSyscalls,
+  SessionWriteInput,
+} from "../sessions/session-syscalls.ts";
 import { evaluateCommandWithLayer } from "../policy/command-policy.ts";
 import { createNullLedger, type ToolLedger } from "../runs/tool-ledger.ts";
 import type {
@@ -41,8 +47,8 @@ import type {
   BackgroundJobSummary,
 } from "../connectors/background-exec-broker.ts";
 import type { MonitorBroker, BackgroundWatchResult, BackgroundUnwatchResult } from "../monitors/monitor-broker.ts";
-import type { DeployService, DeployFile } from "../deploy/deploy-service.ts";
-import { publicUrlOf, type Deployment } from "../deploy/deploy-store.ts";
+import { deploymentEntrypoint, type DeployService, type DeployFile } from "../deploy/deploy-service.ts";
+import { publicUrlOf } from "../deploy/deploy-store.ts";
 import { carriesGitMetadata } from "../deploy/deploy-fs.ts";
 import type { AclStore } from "../acl/acl-store.ts";
 import type { AuditLog } from "../audit/audit-log.ts";
@@ -71,13 +77,14 @@ import type { CapabilityClaims } from "../auth/capability-token.ts";
 import type { VisibleCron } from "../api/app.ts";
 import { createPlaygroundArtifact, type PlaygroundArtifact } from "../playgrounds/playground.ts";
 
-const SKILL_SKILLMD_RE = /^(?:\.\/)?skills\/([^/]+)\/SKILL\.md$/;
+const SKILL_FILE_RE = /^(?:\.\/)?skills\/(\.packs\/[^/]+|[^/]+)\/.+$/;
 function skillTreeDirFor(path: string): string | null {
-  const m = SKILL_SKILLMD_RE.exec(path);
+  const m = SKILL_FILE_RE.exec(path);
   return m ? m[1]! : null;
 }
 
-const SKILL_DIR_IN_COMMAND_RE = /(?:^|[\s'"=(&|;])(?:\.\/)?skills\/([^/\s'"&|;)]+)(?=[/\s'"&|;)]|$)/g;
+const SKILL_DIR_IN_COMMAND_RE =
+  /(?:^|[\s'"=(&|;])(?:\.\/)?skills\/(\.packs\/[^/\s'"&|;)]+|[^/\s'"&|;)]+)(?=[/\s'"&|;)]|$)/g;
 function skillTreeDirsInCommand(command: string): string[] {
   const dirs = new Set<string>();
   for (const m of command.matchAll(SKILL_DIR_IN_COMMAND_RE)) dirs.add(m[1]!);
@@ -114,11 +121,6 @@ interface PublishResult {
   alwaysOn?: boolean;
 }
 
-function deploymentEntrypoint(d: Deployment | null): string | undefined {
-  if (!d) return undefined;
-  return d.versions.find((v) => v.version === d.currentVersion)?.entrypoint || undefined;
-}
-
 export class NeedsApproval extends Error {
   command: string;
   approvalReason: string;
@@ -143,7 +145,7 @@ export class CommandDenied extends Error {
   }
 }
 
-interface ReadResult {
+export interface ReadResult {
   content: string | null;
   sourceScopeId: ScopeId | null;
   shared?: true;
@@ -182,6 +184,7 @@ export type AttachFiles = (files: readonly string[]) => Promise<AttachResult>;
 export interface ToolContext extends SurfaceToolDeps {
   runtime?(request: RuntimeRequest, signal?: AbortSignal): Promise<RuntimeResult>;
   attach: AttachFiles;
+  sessionSyscalls?: SessionSyscalls;
   commandCredentialHandles?: readonly string[];
   registerLogin?(
     service: string,
@@ -423,6 +426,7 @@ export interface ToolContextDeps {
   provisionResource?: (id: string) => Promise<SandboxHandle>;
   provisionOwnerAuth?: () => Promise<SandboxHandle>;
   ownerAuthCommand?: (command: string) => string;
+  readSkill?: (path: string) => Promise<ReadResult>;
   ensureSkillTree?: (skillDir: string, sandboxId?: string) => Promise<void>;
   reach?: {
     resolveChannel(query: string): Promise<ReachResolution>;
@@ -481,6 +485,7 @@ export interface ToolContextDeps {
   webhookPublicUrl?: string;
   surface?: SurfaceToolDeps;
   attach?: AttachFiles;
+  sessionSyscalls?: SessionSyscalls;
 }
 
 export function createToolContext(deps: ToolContextDeps): ToolContext {
@@ -508,13 +513,13 @@ export function createToolContext(deps: ToolContextDeps): ToolContext {
   }
 
   async function once<T>(produce: () => Promise<T>, shouldCache: (r: T) => boolean = () => true): Promise<T> {
-    callIndex += 1;
+    const index = ++callIndex;
     if (runId === undefined) return produce();
-    const prior = await timed("tool_ledger", () => ledger.begin(runId, attempt, callIndex));
+    const prior = await timed("tool_ledger", () => ledger.begin(runId, attempt, index));
     if (prior.cached) return JSON.parse(prior.output ?? "null") as T;
     const result = await produce();
     if (shouldCache(result))
-      await timed("tool_ledger", () => ledger.record(runId, attempt, callIndex, JSON.stringify(result ?? null)));
+      await timed("tool_ledger", () => ledger.record(runId, attempt, index, JSON.stringify(result ?? null)));
     return result;
   }
 
@@ -798,6 +803,8 @@ export function createToolContext(deps: ToolContextDeps): ToolContext {
 
     async read(path: string, signal?: AbortSignal): Promise<ReadResult> {
       signal?.throwIfAborted();
+      if (path.startsWith("skill://"))
+        return deps.readSkill ? withAbort(() => deps.readSkill!(path), signal) : { content: null, sourceScopeId: null };
       if (path === MEMORY_FILE && deps.memory && deps.memoryScopeId) {
         if (!deps.memoryAccess?.read.includes(deps.memoryScopeId)) {
           throw new Error("memory recall is not enabled for this conversation; use the `memory` tool when enabled");
@@ -865,6 +872,8 @@ export function createToolContext(deps: ToolContextDeps): ToolContext {
     },
 
     async write(path: string, data?: string, share?: ShareDirective[]): Promise<WriteResult> {
+      if (path.startsWith("skill://"))
+        throw new Error("Published skill sources are read-only; edit skills through the skill API.");
       const wantShare = share !== undefined && share.length > 0;
       if (data === undefined && !wantShare) {
         throw new Error("write needs `data` to save content, `share` to grant access, or both");
@@ -975,7 +984,6 @@ export function createToolContext(deps: ToolContextDeps): ToolContext {
             ),
           )
         : {};
-      const env = { ...input.env, ...authEnv };
 
       const pc = deps.publishContext;
       const aud: PublishAudience =
@@ -1010,7 +1018,8 @@ export function createToolContext(deps: ToolContextDeps): ToolContext {
           ...(input.entrypoint ? { entrypoint: input.entrypoint } : {}),
           ...(input.name !== undefined ? { name: input.name } : {}),
           ...(input.renameFrom !== undefined ? { renameFrom: input.renameFrom } : {}),
-          ...(Object.keys(env).length ? { env } : {}),
+          ...(input.env !== undefined ? { env: input.env } : {}),
+          ...(Object.keys(authEnv).length ? { stampEnv: authEnv } : {}),
           ...(input.rollbackTo !== undefined ? { rollbackTo: input.rollbackTo } : {}),
           ...(input.alwaysOn !== undefined ? { alwaysOn: input.alwaysOn } : {}),
           ...(doReconcile
@@ -1085,6 +1094,18 @@ export function createToolContext(deps: ToolContextDeps): ToolContext {
         }),
       );
     },
+
+    ...(deps.sessionSyscalls
+      ? {
+          sessionSyscalls: {
+            receive: (timeoutMs?: number) => deps.sessionSyscalls!.receive?.(timeoutMs) ?? Promise.resolve([]),
+            acknowledge: (ids: string[]) => deps.sessionSyscalls!.acknowledge?.(ids) ?? Promise.resolve(),
+            open: (input: SessionOpenInput) => once(() => deps.sessionSyscalls!.open(input)),
+            write: (input: SessionWriteInput) => once(() => deps.sessionSyscalls!.write(input)),
+            read: (input: SessionReadInput) => deps.sessionSyscalls!.read(input),
+          },
+        }
+      : {}),
 
     async history(q: string, limit?: number): Promise<string[]> {
       if (!deps.sessionHistory) return [];

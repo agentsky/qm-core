@@ -1,8 +1,27 @@
+import { flushErrorReporting } from "../plugins/chassis/src/error-reporting.ts";
+import { createProductAnalytics } from "./util/product-analytics.ts";
+import { createAdmittedWork } from "./util/admitted-work.ts";
+import {
+  createBackgroundOwnershipStore,
+  type BackgroundOwnershipStore,
+  type BackgroundOwnership,
+} from "./runs/background-ownership.ts";
+import { loadConnectorSdk } from "./sandbox/connector-sdk.ts";
 import { createMemoryEventBus } from "./util/event-bus.ts";
 import { createPostgresNotifyBus } from "./persistence/postgres-notify-bus.ts";
 import { emitRunText, type RunStreamEvent } from "./runs/run-stream-events.ts";
+import { createPostgresResourceSearch } from "./search/resource-search.ts";
+import { createSessionMailbox, type SessionMessage } from "./sessions/session-mailbox.ts";
+import type { TaskAckState } from "./slack/task-ack.ts";
 import { createGatewayCatalog } from "./model/gateway-catalog.ts";
 import { createRuntimeService } from "./harness/runtime-control.ts";
+import {
+  createSessionSyscalls,
+  deliverSubagentMail,
+  sessionTreeRoot,
+  sessionTreeRunCount,
+  SUBAGENT_TREE_RUN_CAP,
+} from "./sessions/session-syscalls.ts";
 import { createDirectFileUploads, type DirectFileUploads } from "./files/direct-file-upload.ts";
 import { createPostgresFileUploadStore } from "./files/file-upload-store.ts";
 import {
@@ -267,16 +286,17 @@ import { createMemoryRunStore } from "./runs/memory-run-store.ts";
 import { createPostgresRunStore } from "./runs/postgres-run-store.ts";
 import { createMemoryRunSignalStore, type RunSignalStore } from "./runs/run-signal-store.ts";
 import { createPostgresRunSignalStore } from "./runs/postgres-run-signal-store.ts";
-import { isTerminal, type RunStore } from "./runs/run-store.ts";
+import { isTerminal, type Run, type RunStore } from "./runs/run-store.ts";
 import { createWorker, type Worker } from "./runs/worker.ts";
 import {
   createNoopInstanceRegistry,
+  createLegacyEnrollmentBridge,
   createPostgresInstanceRegistry,
   type InstanceRegistry,
 } from "./runs/instance-registry.ts";
 import { createDrainController, type DrainController } from "./runs/drain.ts";
 import { createReaper, REAPER_LEASE_KEY, type Reaper } from "./runs/reaper.ts";
-import { createSweeper, type Sweeper } from "./util/sweeper.ts";
+import { createSweeper as createUntrackedSweeper, type Sweeper } from "./util/sweeper.ts";
 import {
   createMemoryProcessRegistry,
   createPostgresProcessRegistry,
@@ -332,7 +352,7 @@ import { createAdminService, bootAdminGrantSeed, type AdminService } from "./adm
 import { createAdminGrantStore, createMapAdminGrantPersistence, type AdminGrant } from "./admin/admin-grant-store.ts";
 import { createPostgresAdminGrantStore } from "./admin/postgres-admin-grant-store.ts";
 import { createProjectStore, type Project, type ProjectStore } from "./projects/project-store.ts";
-import { createErrorLog, type ErrorLog } from "./admin/error-log.ts";
+import { withErrorReporting, createErrorLog, type ErrorLog } from "./admin/error-log.ts";
 import { createMemoryReplayDedupe, createPostgresReplayDedupe, type ReplayDedupe } from "./auth/replay-dedupe.ts";
 import {
   emptyDeploymentLayer,
@@ -351,41 +371,54 @@ import { createPostgresErrorLog } from "./admin/postgres-error-log.ts";
 import { createMetricsSink, type MetricsSink } from "./admin/metrics-sink.ts";
 import { createPostgresMetricsSink } from "./admin/postgres-metrics-sink.ts";
 import { errMessage, swallowAs } from "./util/errors.ts";
-import { sleep } from "./util/async.ts";
+import { sleep, withTimeout } from "./util/async.ts";
 import { createSlackInstallationStore, type SlackInstallationStore } from "./surfaces/slack-installation.ts";
 
 export interface Runtime {
   start(): void;
+  startBackground(): void;
+  stopBackgroundClaims(): Promise<void>;
+  setBackgroundAdmission(check: () => boolean): void;
+  stopBackground(): Promise<void>;
+  backgroundDrained(): Promise<void>;
   stop(): Promise<void>;
   releaseInFlightRuns(): Promise<void>;
 }
 
 export function stopWithBackstop(
-  runtime: Runtime,
+  runtime: Pick<Runtime, "stop" | "releaseInFlightRuns">,
   shutdownDrainMs: number,
   label: string,
   beforeExit?: () => void,
 ): void {
   const hardExit = setTimeout(() => {
     console.error(`[${label}] drain overran; releasing in-flight leases before forced exit`);
-    void Promise.race([runtime.releaseInFlightRuns(), sleep(3_000, { unref: true })]).finally(() => process.exit(0));
+    void Promise.race([runtime.releaseInFlightRuns(), sleep(3_000, { unref: true })]).finally(async () => {
+      await flushErrorReporting();
+      process.exit();
+    });
   }, shutdownDrainMs + 5_000);
   hardExit.unref();
   void runtime.stop().then(
-    () => {
+    async () => {
+      await flushErrorReporting();
       clearTimeout(hardExit);
       beforeExit?.();
-      process.exit(0);
+      process.exit();
     },
     (e: unknown) => {
       console.error(`[${label}] graceful stop failed: ${errMessage(e)}`);
       clearTimeout(hardExit);
-      void Promise.race([runtime.releaseInFlightRuns(), sleep(3_000, { unref: true })]).finally(() => process.exit(1));
+      void Promise.race([runtime.releaseInFlightRuns(), sleep(3_000, { unref: true })]).finally(async () => {
+        await flushErrorReporting();
+        process.exit(1);
+      });
     },
   );
 }
 
 export interface BuiltApp {
+  backgroundOwnership?: { store: BackgroundOwnershipStore; instanceId: string; deploymentId: string };
   app: App;
   screenSecurity?: SecurityScreenProbe;
   deploymentLayer: DeploymentLayerRuntime;
@@ -479,6 +512,12 @@ export function buildApp(
     modelVerificationProbe?: typeof probeModel;
   } = {},
 ): BuiltApp {
+  let backgroundAdmission = () => !config.backgroundDeploymentId;
+  const admittedWork = createAdmittedWork({
+    canStart: () => !config.backgroundDeploymentId || backgroundAdmission(),
+  });
+  const createSweeper: typeof createUntrackedSweeper = (work, interval, options) =>
+    createUntrackedSweeper(() => admittedWork.run(work), interval, options);
   if (config.databaseUrl && !config.connectorSecretKey) {
     throw new Error("CONNECTOR_SECRET_KEY is required with durable storage");
   }
@@ -644,7 +683,7 @@ export function buildApp(
       : {}),
   });
   const deploymentLayerReady = deploymentLayerStore.hydrate();
-  const deploymentLayerRefresh = createSweeper(() => deploymentLayerStore.hydrate(), 30_000, {
+  const deploymentLayerRefresh = createUntrackedSweeper(() => deploymentLayerStore.hydrate(), 30_000, {
     label: "deployment layer refresh",
   });
   let skillsReady: Promise<void>;
@@ -735,7 +774,7 @@ export function buildApp(
     },
   });
   const mcpServers = createMcpServerStore(artifactMap<McpServer>("mcp_servers"));
-  const errors = config.databaseUrl ? createPostgresErrorLog(config.databaseUrl) : createErrorLog();
+  const errors = withErrorReporting(config.databaseUrl ? createPostgresErrorLog(config.databaseUrl) : createErrorLog());
   const sandboxOnError = (e: { category: string; code: string; message: string; scopeLabel?: string }) =>
     errors.record({
       category: e.category,
@@ -799,15 +838,7 @@ export function buildApp(
         tokenId: modal.tokenId,
         tokenSecret: modal.tokenSecret,
         appName: modal.appName ?? "qm",
-        image: modal.image ?? "ubuntu:24.04",
-        ...(modal.image
-          ? {}
-          : {
-              imageSetupCommands: [
-                "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git jq tar xz-utils unzip python3 python3-venv openssh-client && rm -rf /var/lib/apt/lists/*",
-                "RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install -y --no-install-recommends nodejs && rm -rf /var/lib/apt/lists/* && node --version",
-              ],
-            }),
+        ...(modal.image ? { image: modal.image } : {}),
         ...(modal.environment ? { environment: modal.environment } : {}),
         ...(modal.cpus !== undefined ? { cpus: modal.cpus } : {}),
         ...(modal.memoryMb !== undefined ? { memoryMb: modal.memoryMb } : {}),
@@ -827,6 +858,7 @@ export function buildApp(
       ...(modal.egressProxyUrl ? { egressProxyUrl: modal.egressProxyUrl } : {}),
       extraTools: deploymentLayer.advertisedTools,
       credentialPaths: deploymentLayer.credentialPaths,
+      connectorSdk: loadConnectorSdk,
       layerToolFiles: () => deploymentLayer.installFiles,
       blobTransfer,
       ...(config.signingSecret ? { signingSecret: config.signingSecret } : {}),
@@ -1221,10 +1253,37 @@ export function buildApp(
     runStoreKind === "postgres"
       ? createPostgresRunStore(requireDbUrl("RUN_STORE"), { maxClaims: config.maxClaims })
       : createMemoryRunStore({ maxClaims: config.maxClaims });
-  const runs: RunStore = runStore.runs;
+  const runs: RunStore = {
+    ...runStore.runs,
+    async enqueue(input) {
+      const enqueue = async () => {
+        const known = await sessions.getByThread(input.sessionId);
+        if (
+          known &&
+          (known.parentSessionId || (await sessions.childrenOf(known.id)).length > 0) &&
+          !(input.dedupKey && (await runStore.runs.getByDedupKey(input.dedupKey))) &&
+          (await sessionTreeRunCount(sessions, runStore.runs, await sessionTreeRoot(sessions, known))) >=
+            SUBAGENT_TREE_RUN_CAP
+        )
+          throw new Error(`all ${SUBAGENT_TREE_RUN_CAP} session run slots are in use`);
+        const participants = known ? await sessions.participantsOf(known.id) : [];
+        const result = await runStore.runs.enqueue(input);
+        if (!result.deduped)
+          sessionStateBus.emit({
+            threadRef: input.sessionId,
+            ...(known ? { sessionId: known.id } : {}),
+            state: "working",
+            at: result.run.createdAt,
+            participants: participants.length ? participants : [input.request.actor.id],
+          });
+        return result;
+      };
+      return advisoryLock.withLock("session-run-admission", enqueue);
+    },
+  };
   const swarmStoreKind = config.databaseUrl ? "postgres" : "memory";
   const swarms =
-    config.sessionStore === swarmStoreKind && runStoreKind === swarmStoreKind
+    config.swarmsEnabled !== false && config.sessionStore === swarmStoreKind && runStoreKind === swarmStoreKind
       ? createSwarmService({
           defaults: config.swarmDefaults,
           store: createSwarmStore(artifactMap<SwarmStorage>("swarms"), {
@@ -1325,7 +1384,7 @@ export function buildApp(
     captureQuietMs: config.memoryCaptureQuietMs,
     ...(config.memoryCaptureMaxTurns !== undefined ? { captureMaxTurns: config.memoryCaptureMaxTurns } : {}),
     onCaptureError: (e, scope) =>
-      errors.record({ category: "memory", code: "capture_failed", message: errMessage(e), scopeLabel: scope }),
+      errors.record({ category: "memory", code: "capture_failed", message: errMessage(e), scopeLabel: scope }, e),
   });
   const directory = config.databaseUrl ? createPostgresDirectoryStore(config.databaseUrl) : createDirectoryStore();
   const projects = createProjectStore(artifactMap<Project>("projects"), {
@@ -1347,6 +1406,7 @@ export function buildApp(
   const deployGitSecret = config.signingSecret;
   const deployGitBase = config.apiBaseUrl;
   const deployService = createDeployService({
+    appPublished: createProductAnalytics(config.orgId, config.productAnalytics).appPublished,
     deployStore,
     provider: deployProvider,
     deployDir: join(config.dataDir, "deployments"),
@@ -1453,7 +1513,43 @@ export function buildApp(
       shadow: config.securityScreenProxy!.shadow,
     });
   }
+  const prepareSessionRequest = async (request: Parameters<RunStore["enqueue"]>[0]["request"]) => {
+    const scope = resolution.scopeFor(request.conversation, request.actor);
+    if (!(await canWriteScope(request.actor.id, scope))) throw new Error("session actor no longer has scope access");
+    const ref = request.conversation.channelRef;
+    if (request.conversation.kind !== "group" || !ref || !projects.recognizes(ref)) return request;
+    const version = await projects.version(ref);
+    const audience = await currentScopeMembers(resolution.scopeFor(request.conversation, request.actor));
+    if (!version || !audience?.some((p) => p.id === request.actor.id))
+      throw new Error("session owner is no longer a member of this project");
+    return {
+      ...request,
+      scopeVersion: version,
+      sessionParticipantIds: audience.map((p) => p.id),
+      conversation: { ...request.conversation, audience, publishMembers: audience },
+    };
+  };
+  const sessionMailbox = createSessionMailbox(artifactMap<SessionMessage>("session_mailbox"));
+  const sessionSyscalls = createSessionSyscalls({
+    mailbox: sessionMailbox,
+    enabled: (actorId) => featureFlags.enabled("persistent_subagents", scopeId("personal", actorId)),
+    sessions,
+    runs,
+    signals: runSignals,
+    maxAttempts,
+    advisoryLock,
+    prepareRequest: prepareSessionRequest,
+    authorize: (session, actorId) => canWriteScope(actorId, session.scopeId),
+    async validateRuntime(input, scope) {
+      await resolveRuntimeChoiceDurable(configStore, runtimeOrgScope, scope, fallback, {
+        ...(input.harness ? { harnessId: input.harness as HarnessId } : {}),
+        ...(input.model ? { modelId: input.model } : {}),
+        ...(input.thinkingLevel ? { effortLevel: input.thinkingLevel } : {}),
+      });
+    },
+  });
   const orchestratorDeps: OrchestratorDeps = {
+    sessionSyscalls,
     refreshModels,
     identity,
     resolution,
@@ -1526,7 +1622,7 @@ export function buildApp(
     webhooks,
     resolveBaseModelId: () => orgBaseModelId() ?? fallback.modelId,
     ...(config.scratchExecEnabled ? { scratchExec: true } : {}),
-    ...(config.sharedOwnerAuthIsolation ? { ownerAuthExec: true, sharedOwnerAuthIsolation: true } : {}),
+    ...(config.sharedOwnerAuthIsolation ? { sharedOwnerAuthIsolation: true } : {}),
     directory,
     isCurrentSharedScopeMember,
     managedGroups: projects,
@@ -1593,7 +1689,10 @@ export function buildApp(
   }> | null> => {
     const puller = orchestratorDeps.surfaceContext;
     if (!puller) return null;
-    const result = await puller.pull("slack", { conversationTarget: container, count: opts?.limit ?? 100 });
+    const result = await puller.pull("slack", {
+      conversationTarget: container,
+      ...(opts?.limit !== undefined ? { count: opts.limit } : {}),
+    });
     if (!result) return null;
     return (result.messages as Array<Record<string, unknown>>).map((m) => ({
       container,
@@ -1632,6 +1731,8 @@ export function buildApp(
         })
     : undefined;
   const app = createApp({
+    admittedWork,
+    ...(pgArtifactMap ? { resourceSearch: createPostgresResourceSearch(pgArtifactMap.pool) } : {}),
     swarms,
     identity,
     ...(config.publicWebUrl ? { publicWebUrl: config.publicWebUrl } : {}),
@@ -1693,7 +1794,9 @@ export function buildApp(
     reaperPoke: pokeReaper,
     surfaceCache,
     channelPolicy,
-    ...(harness.models.judge ? { ambientJudge: (s: string, pr: string) => harness.models.judge!(s, pr) } : {}),
+    ...(harness.models.judge
+      ? { ambientJudge: (s: string, pr: string, signal?: AbortSignal) => harness.models.judge!(s, pr, signal) }
+      : {}),
     ...(screenSecurity ? { screenSecurity } : {}),
     ambientCursors: artifactMap<{ lastJudgedTs: string; lastJudgedAt?: number }>("ambient_cursors"),
     ambientJudgments,
@@ -1712,6 +1815,7 @@ export function buildApp(
   });
   const slackCore = createSlackCoreClient({
     surfaceCache,
+    taskAcknowledgements: artifactMap<TaskAckState>("slack_task_acknowledgements"),
     inboxEvent: (event) => inboxRealtime.onConversationEvent(event),
     app,
     leaderLease,
@@ -1761,11 +1865,41 @@ export function buildApp(
     })().catch(swallowAs("session-state: terminal emit", undefined));
   });
   let lastSignalPrune = 0;
+  const returnSessionRun = (run: Run) =>
+    advisoryLock.withLock("session-tree-admission", async () => {
+      await deliverSubagentMail(
+        { sessions, runs, maxAttempts, mailbox: sessionMailbox, prepareRequest: prepareSessionRequest },
+        run,
+      );
+      await runs.markReturned(run.id);
+    });
+  runs.onTerminal((run) => {
+    if (run.sessionId.startsWith("agent:main:subagent:"))
+      void returnSessionRun(run).catch(swallowAs("sessions: return", undefined));
+  });
+  const sweepSessionReturns = async () => {
+    let afterId: string | undefined;
+    for (;;) {
+      const batch = await runs.pendingReturns(100, afterId);
+      if (!batch.length) return;
+      for (const run of batch) await returnSessionRun(run).catch(swallowAs("sessions: recover return", undefined));
+      afterId = batch.at(-1)!.id;
+    }
+  };
+  const sessionReturnSweeper = createSweeper(
+    () =>
+      advisoryLock.tryWithLock
+        ? advisoryLock.tryWithLock("session-return-sweep", sweepSessionReturns)
+        : advisoryLock.withLock("session-return-sweep", sweepSessionReturns),
+    1_000,
+    { label: "session-returns", immediate: true },
+  );
   const orphanedSignalSweeper = createSweeper(
     async () => {
       for (const runId of await runSignals.pendingRunIds()) {
         const run = await runs.get(runId);
-        if (!run || isTerminal(run.status)) await app.replayOrphanedRunSignals(runId);
+        if (!run || isTerminal(run.status))
+          await app.replayOrphanedRunSignals(runId).catch(swallowAs("sessions: recover signal", undefined));
       }
       if (Date.now() - lastSignalPrune > 60 * 60_000) {
         lastSignalPrune = Date.now();
@@ -1855,6 +1989,8 @@ export function buildApp(
   const sweepAsks =
     keychain && askResolution ? createAskExpirySweep({ keychain, fire: askResolution, auditLog }) : undefined;
   const scheduler = createScheduler({
+    admittedWork,
+    requireQueueStart: Boolean(config.backgroundDeploymentId),
     crons,
     deliveries,
     idempotency,
@@ -1891,6 +2027,7 @@ export function buildApp(
   const monitorPoller: MonitorPoller | null =
     processes && supportsProcessSessions(sandbox)
       ? createMonitorPoller({
+          admittedWork,
           monitors,
           processes,
           sandbox,
@@ -1920,19 +2057,43 @@ export function buildApp(
     directory,
     currentScopeMembers,
   });
-  const instanceRegistry: InstanceRegistry =
-    config.buildSha && pgArtifactMap
+  const backgroundOwnership = config.backgroundDeploymentId
+    ? {
+        store: createBackgroundOwnershipStore(artifactMap<BackgroundOwnership>("background_ownership")),
+        instanceId: randomUUID(),
+        deploymentId: config.backgroundDeploymentId,
+      }
+    : undefined;
+  const legacyRegistry =
+    pgArtifactMap && (backgroundOwnership || (config.buildSha && config.backgroundWorkEnabled))
       ? createPostgresInstanceRegistry(pgArtifactMap.pool, {
           instanceId: randomUUID(),
-          buildSha: config.buildSha,
+          buildSha: backgroundOwnership ? `enrollment:${backgroundOwnership.deploymentId}` : config.buildSha!,
           startedAt: Date.now(),
         })
       : createNoopInstanceRegistry();
+  const instanceRegistry: InstanceRegistry = backgroundOwnership
+    ? createLegacyEnrollmentBridge(legacyRegistry, async () => {
+        if (!config.backgroundWorkEnabled || !backgroundAdmission()) return false;
+        const state = await backgroundOwnership.store.get();
+        const member = state.members.find((entry) => entry.instanceId === backgroundOwnership.instanceId);
+        return (
+          !state.enabled &&
+          state.generation === 0 &&
+          member?.generation === 0 &&
+          !member.retired &&
+          member.state === "admitted" &&
+          member.ready &&
+          backgroundAdmission()
+        );
+      })
+    : legacyRegistry;
   const drain: DrainController = createDrainController({
     registry: instanceRegistry,
   });
   const workers: Worker[] = Array.from({ length: Math.max(1, config.workers) }, () =>
     createWorker({
+      admittedWork,
       runs,
       sessions,
       orchestrator,
@@ -1940,7 +2101,7 @@ export function buildApp(
       heartbeatIntervalMs: config.heartbeatIntervalMs,
       errors,
       pollMs: 250,
-      canClaim: () => drain.canClaim(),
+      canClaim: () => backgroundAdmission() && drain.canClaim(),
     }),
   );
   const processReaper: ProcessReaper | null = processes
@@ -1987,13 +2148,36 @@ export function buildApp(
         { immediate: true },
       )
     : null;
-  const runtime: Runtime = {
-    start() {
-      if (!config.backgroundWorkEnabled) return;
-      for (const w of workers) w.start();
+  let backgroundRunning = false;
+  let backgroundStopping: Promise<void> | null = null;
+  let backgroundClaimsStopping: Promise<void> = Promise.resolve();
+  let monitorDrained: Promise<void> = Promise.resolve();
+  let backgroundGeneration = 0;
+  function startBackground(): void {
+    if (backgroundRunning) return;
+    backgroundRunning = true;
+    admittedWork.resume();
+    drain.start();
+    const generation = ++backgroundGeneration;
+    for (const worker of workers) {
+      const drained = worker.drained();
+      worker.start();
+      void drained
+        .then(() => {
+          if (backgroundRunning && generation === backgroundGeneration) worker.start();
+        })
+        .catch(swallowAs("wiring: worker resume failed", undefined));
+    }
+    const startPeriodic = () => {
+      if (!backgroundRunning || generation !== backgroundGeneration) return;
       reaper.start();
       processReaper?.start();
       monitorPoller?.start(config.monitorPollMs);
+      void monitorDrained
+        .then(() => {
+          if (backgroundRunning && generation === backgroundGeneration) monitorPoller?.start(config.monitorPollMs);
+        })
+        .catch(swallowAs("wiring: monitor resume failed", undefined));
       monitorRetentionSweeper.start();
       if (config.skillSyncPollMs > 0) skillSyncEngine.start(config.skillSyncPollMs);
       blobSweeper.start();
@@ -2004,30 +2188,75 @@ export function buildApp(
       wakeSweep.start();
       swarms?.start();
       orphanedSignalSweeper.start();
+      sessionReturnSweeper.start();
+    };
+    if (backgroundStopping)
+      void backgroundClaimsStopping.then(startPeriodic).catch(swallowAs("wiring: periodic resume failed", undefined));
+    else startPeriodic();
+  }
+  function stopBackground(): Promise<void> {
+    admittedWork.pause();
+    backgroundRunning = false;
+    const previous = backgroundStopping;
+    backgroundGeneration++;
+    const monitorStopping = monitorPoller?.stop();
+    monitorDrained = monitorStopping ?? Promise.resolve();
+    const stopping = [
+      reaper.stop(),
+      processReaper?.stop(),
+      monitorRetentionSweeper.stop(),
+      skillSyncEngine.stop(),
+      idleSweeper?.stop(),
+      keepWarmSweeper.stop(),
+      deepIdleSweeper?.stop(),
+      blobSweeper.stop(),
+      fileUploads?.stop(),
+      wakeSweep.stop(),
+      swarms?.stop(),
+      orphanedSignalSweeper.stop(),
+      sessionReturnSweeper.stop(),
+      ...workers.map((worker) => worker.stopClaims()),
+    ];
+    backgroundClaimsStopping = Promise.all(stopping).then(() => {});
+    const draining = Promise.all([previous, backgroundClaimsStopping, monitorStopping])
+      .then(() => {})
+      .finally(() => {
+        if (backgroundStopping === draining) backgroundStopping = null;
+      });
+    backgroundStopping = draining;
+    return draining;
+  }
+  const runtime: Runtime = {
+    start() {
       drain.start();
+      if (config.backgroundWorkEnabled && !config.backgroundDeploymentId) startBackground();
+    },
+    startBackground,
+    setBackgroundAdmission(check) {
+      backgroundAdmission = check;
+    },
+    async stopBackgroundClaims() {
+      void stopBackground().catch(swallowAs("wiring: background drain failed", undefined));
+      await Promise.all([backgroundClaimsStopping, ...workers.map((worker) => worker.stopClaims())]);
+    },
+    stopBackground,
+    async backgroundDrained() {
+      await backgroundStopping;
+      await Promise.all([admittedWork.drained(), ...workers.map((worker) => worker.drained())]);
     },
     async releaseInFlightRuns() {
       await Promise.all(workers.map((w) => w.releaseInFlight()));
     },
     async stop() {
-      reaper.stop();
-      processReaper?.stop();
-      monitorPoller?.stop();
-      monitorRetentionSweeper.stop();
-      skillSyncEngine.stop();
-      idleSweeper?.stop();
-      keepWarmSweeper.stop();
-      deepIdleSweeper?.stop();
-      blobSweeper.stop();
-      fileUploads?.stop();
-      wakeSweep.stop();
-      swarms?.stop();
-      orphanedSignalSweeper.stop();
-      await Promise.all(workers.map((w) => w.stop(config.shutdownDrainMs))).catch(
-        swallowAs("wiring: worker drain failed", undefined),
-      );
+      await stopBackground();
+      await Promise.all([
+        withTimeout(() => admittedWork.drained(), config.shutdownDrainMs, "admitted work drain").catch(
+          swallowAs("wiring: admitted work drain failed", undefined),
+        ),
+        ...workers.map((w) => w.stop(config.shutdownDrainMs)),
+      ]).catch(swallowAs("wiring: worker drain failed", undefined));
       await Promise.all(workers.map((w) => w.releaseInFlight()));
-      drain.stop();
+      await drain.stop();
       runs.close?.();
       void runSignals.close?.();
       void sessionStateBus.close?.();
@@ -2117,6 +2346,7 @@ export function buildApp(
     ...(ambientJudgments ? { ambientJudgments } : {}),
     ...(ackEmojiPicks ? { ackEmojiPicks } : {}),
     channelPolicy,
+    ...(backgroundOwnership ? { backgroundOwnership } : {}),
     uiState: artifactMap<PersistedUiState>("web_ui_state"),
     sessionShares: artifactMap<SessionShare>("session_shares"),
     sessionShareBytes:
@@ -2142,6 +2372,12 @@ export function serverDeps(
   const carriedModelAuth = harnessCarriedModelAuth(config);
   return {
     production: config.production,
+    ...(built.backgroundOwnership
+      ? {
+          backgroundOwnership: built.backgroundOwnership,
+          deploymentControlSecret: config.deploymentControlSecret,
+        }
+      : {}),
     allowUnauthenticatedCore: config.allowUnauthenticatedCore,
     ...(config.signingSecret ? { signingSecret: config.signingSecret } : {}),
     ...(config.capabilitySecret ? { capabilitySecret: config.capabilitySecret } : {}),

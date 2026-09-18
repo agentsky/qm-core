@@ -249,7 +249,9 @@ service, with each version converting to Apache-2.0 terms two years after its re
 ### Managed Slack installation
 
 A hosting provider can set `QM_SLACK_SERVICE_URL` (HTTPS),
-`QM_SLACK_SERVICE_TOKEN` (unique per deployment), and `QM_SLACK_APP_ID` on core.
+`QM_SLACK_SERVICE_TOKEN` (unique per deployment) on core. Optionally set
+`QM_SLACK_APP_ID` to pin a pre-existing app; otherwise the authenticated service
+assigns its app ID during installation. Events must match the stored app identity.
 Core's Slack installation admin route then offers **Add to Slack** through that service.
 Core calls `POST /install/start` with the deployment bearer credential and expects
 `{ "url": "https://<service>/..." }`. A browser submits a POST form to that URL; the

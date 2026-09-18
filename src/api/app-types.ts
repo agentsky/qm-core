@@ -1,5 +1,7 @@
+import type { AdmittedWork } from "../util/admitted-work.ts";
 import type { EventBus } from "../util/event-bus.ts";
 import type { RunStreamEvent } from "../runs/run-stream-events.ts";
+import type { ResourceSearchStore, ResourceSearchHit } from "../search/resource-search.ts";
 import type { ModelOverlayStore } from "../model/model-overlay-store.ts";
 import type { SwarmService } from "../swarms/swarm-service.ts";
 import type {
@@ -94,8 +96,8 @@ import type { DeploymentLayerRuntime } from "../deployment/load-layer.ts";
 import { type ArtifactHome, type ArtifactType } from "./artifact-share.ts";
 import type {
   DeployService,
-  DeployFile,
   DeployInput,
+  RedeployInput,
   Reach,
   ReachOptions,
   DeploymentGrantee,
@@ -262,7 +264,7 @@ export interface SessionSearchHit {
 
 export interface App {
   swarms?: SwarmService;
-  turn(req: TurnRequest): Promise<TurnResult>;
+  turn(req: TurnRequest, replay?: { signalDedupKey: string }): Promise<TurnResult>;
   getApproval(requestId: string, viewer?: string): Promise<(PendingApprovalRecord & { requestId: string }) | null>;
   subscribeSessionStates(cb: (event: SessionStateEvent) => void, opts?: SubscribeOptions): () => void;
   subscribeLedgerEvents(cb: (event: OwnedLedgerEvent) => void, opts?: SubscribeOptions): () => void;
@@ -276,6 +278,13 @@ export interface App {
   ): Promise<{
     status: Run["status"];
     result: TurnResult | null;
+    input?: {
+      runId: string;
+      seq: number | null;
+      text: string;
+      createdAt: number;
+      attachments?: Array<{ name: string; mimetype: string; sizeBytes: number }>;
+    };
     partial?: string;
     alive?: boolean;
     stale?: boolean;
@@ -293,6 +302,12 @@ export interface App {
     threadRef: string,
     viewer?: string,
   ): Promise<{ runId: string; queued?: Array<{ runId: string; text: string; hasAttachments?: boolean }> } | null>;
+  editQueuedRun(
+    runId: string,
+    text: string,
+    expectedText: string,
+    viewer?: string,
+  ): Promise<{ edited: boolean; reason?: string }>;
   withdrawRun(runId: string, viewer?: string): Promise<{ withdrawn: boolean; reason?: string }>;
   signalRun(
     runId: string,
@@ -327,6 +342,10 @@ export interface App {
   listConversationPins(threadRef: string, reader: string): Promise<SessionPinView[] | null>;
   unpinConversationItem(threadRef: string, pinId: string): Promise<boolean | null>;
   listSessions(principalId: string): Promise<Session[]>;
+  searchResources(
+    principalId: string,
+    query: string,
+  ): Promise<{ hits: ResourceSearchHit[]; failed: string[]; limited: string[] }>;
   searchSessions(principalId: string, query: string, limit?: number): Promise<SessionSearchHit[]>;
   search(
     query: string,
@@ -353,6 +372,8 @@ export interface App {
     patch: { title?: string | null; archived?: boolean; pinned?: boolean; color?: string | null },
   ): Promise<Session | null>;
   regenerateTitle(sessionId: string, principalId: string): Promise<{ title: string | null } | null>;
+  detachSession(sessionId: string, principalId: string): Promise<{ detached: true } | null>;
+  adoptSession(sessionId: string, parentSessionId: string, principalId: string): Promise<{ adopted: true } | null>;
   spawnSession(principalId: string, opts: { scopeId: ScopeId; title?: string }): Promise<{ session: Session } | null>;
   discardSession(sessionId: string, principalId: string): Promise<boolean>;
   forkSession(
@@ -483,10 +504,7 @@ export interface App {
   reachNow(input: ReachNowInput): Promise<ReachNowResult>;
   resolveReachTarget(target: ReachTarget, authorityId: string, opts?: ReachOpts): Promise<ReachResolution>;
   deploy(input: DeployInput): Promise<Deployment>;
-  redeploy(
-    id: string,
-    input: { entrypoint: string; files: DeployFile[]; env?: Record<string, string> },
-  ): Promise<Deployment>;
+  redeploy(id: string, input: RedeployInput): Promise<Deployment>;
   listDeployments(): Promise<Deployment[]>;
   getDeployment(idOrName: string): Promise<Deployment | null>;
   listDeploymentsForViewer(principalId: string): Promise<ViewerDeployment[]>;
@@ -562,6 +580,8 @@ export interface App {
 }
 
 export interface AppDeps {
+  admittedWork?: AdmittedWork;
+  resourceSearch?: ResourceSearchStore;
   swarms?: SwarmService;
   identity: IdentityService;
   publicWebUrl?: string;
@@ -617,7 +637,7 @@ export interface AppDeps {
   engaged?: EngagedRegistry;
   surfaceCache?: SurfaceCache;
   channelPolicy?: ChannelPolicyStore;
-  ambientJudge?: (systemPrompt: string, prompt: string) => Promise<string | undefined>;
+  ambientJudge?: (systemPrompt: string, prompt: string, signal?: AbortSignal) => Promise<string | undefined>;
   ambientCursors?: DurableMap<{ lastJudgedTs: string; lastJudgedAt?: number }>;
   ambientJudgments?: AmbientJudgmentStore;
   ackEmojiPicks?: AckEmojiPickStore;

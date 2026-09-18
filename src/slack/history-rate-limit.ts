@@ -1,3 +1,5 @@
+export const SHARED_SLACK_HISTORY_LIMIT = 15;
+
 export function slackHistoryRateLimitMessage(error: unknown): string | undefined {
   if (!error || typeof error !== "object") return undefined;
   const value = error as { code?: unknown; retryAfter?: unknown; data?: { error?: unknown } };

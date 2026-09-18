@@ -33,7 +33,7 @@ function webTranscriptNote(run: Run, surface: string, failed: boolean): Destinat
 }
 
 export function runResultDelivery(run: Run, taskList: Task[] = []): RunResultDelivery | null {
-  if (run.request.swarm) return null;
+  if (run.request.swarm || run.request.privateSessionMessage) return null;
   const target = run.request.deliveryTarget;
   const surface = run.request.surface;
   if (!target || !surface) return null;
@@ -94,7 +94,7 @@ const FAILURE_RECORD_SCAN_LIMIT = 200;
 const FAILURE_RECORD_WAIT_MS = 10 * 60_000;
 
 export async function recordRunFailureEntry(sessions: TurnFailureSessions, run: Run): Promise<boolean> {
-  if (run.status !== "failed") return false;
+  if (run.status !== "failed" || run.request.swarm) return false;
   const session = await sessions.getByThread(run.sessionId);
   if (!session) {
     console.error(

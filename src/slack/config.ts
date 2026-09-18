@@ -15,8 +15,17 @@ export function parseSlackContextSource(value: string | undefined): SlackContext
   return source;
 }
 
+function parseSlackHistoryLimit(value: string | undefined): number | undefined {
+  if (!value?.trim()) return undefined;
+  const limit = Number(value);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 200)
+    throw new Error("SLACK_HISTORY_LIMIT must be an integer from 1 to 200");
+  return limit;
+}
+
 export interface SlackPluginConfig {
   contextSource?: SlackContextSource;
+  historyLimit?: number;
   installationId?: string;
   sharedServiceUrl?: string;
   receiverFactory?: (staging?: EnvelopeStaging) => Receiver;
@@ -60,6 +69,7 @@ export function slackPluginConfigFromEnv(
   env: Record<string, string | undefined>,
   receiverFactory?: SlackPluginConfig["receiverFactory"],
 ): SlackPluginConfig | null {
+  if (env.DEV_INSTANCE_NO_SLACK === "1") return null;
   const eventsMode = env.SLACK_EVENTS_MODE?.trim() === "http" ? "http" : "socket";
   if (!env.SLACK_BOT_TOKEN) return null;
   if (!receiverFactory && eventsMode === "socket" && !env.SLACK_APP_TOKEN) return null;
@@ -76,6 +86,7 @@ export function slackPluginConfigFromEnv(
     botToken: env.SLACK_BOT_TOKEN,
     ...(env.SLACK_CONTEXT_SOURCE ? { contextSource: parseSlackContextSource(env.SLACK_CONTEXT_SOURCE) } : {}),
     ...(receiverFactory ? { receiverFactory } : {}),
+    ...opt("historyLimit", parseSlackHistoryLimit(env.SLACK_HISTORY_LIMIT)),
     ...opt("appToken", env.SLACK_APP_TOKEN),
     ...opt("apiUrl", env.SLACK_API_URL),
     ...(eventsMode === "http" ? { eventsMode } : {}),
@@ -111,6 +122,7 @@ export function normalizeSlackApiUrl(raw: string): string {
 }
 
 export function slackAccountConfigsFromEnv(env: Record<string, string | undefined>): SlackPluginConfig[] {
+  if (env.DEV_INSTANCE_NO_SLACK === "1") return [];
   const raw = env.SLACK_ACCOUNTS?.trim();
   if (!raw) return [];
   let parsed: unknown;
@@ -142,6 +154,7 @@ export function slackAccountConfigsFromEnv(env: Record<string, string | undefine
       SLACK_IDENTITY_EMAIL: str(a.identityEmail) ?? "1",
       SLACK_LOG_LEVEL: env.SLACK_LOG_LEVEL,
       SLACK_CONTEXT_SOURCE: env.SLACK_CONTEXT_SOURCE,
+      SLACK_HISTORY_LIMIT: env.SLACK_HISTORY_LIMIT,
       QM_SLACK_SERVICE_URL: env.QM_SLACK_SERVICE_URL,
     };
     const config = slackPluginConfigFromEnv(accountEnv);

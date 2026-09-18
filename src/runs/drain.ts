@@ -3,7 +3,7 @@ import { createSweeper, type Sweeper } from "../util/sweeper.ts";
 
 export interface DrainController {
   start(): void;
-  stop(): void;
+  stop(): Promise<void>;
   canClaim(): boolean;
 }
 

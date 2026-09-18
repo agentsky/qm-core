@@ -69,7 +69,7 @@ where removed-feature material sneaks back in through a kept directory (a new te
 subject is a removed module, a doc page about the admin UI), and the dropped list is
 where a wanted file can be lost (restore one with `git checkout upstream/main -- <path>`).
 A kept file marked as importing a removed module exists for that feature: delete it with
-`git rm`, and say so in the PR.
+`git rm -f` (the merge staged it as an addition), and say so in the PR.
 
 ## Resolve the content conflicts
 

@@ -1,6 +1,6 @@
 ---
 name: dev-instance
-description: Run the current worktree as a production-shaped local dev instance — core and Slack, on a real Pi LLM + Postgres — reachable in Slack as your own bot. Each developer uses their own set of Slack apps from their own machine's pool store, so many worktrees (yours and a teammate's) can run reachable at once without colliding. Use when asked to /dev-instance, "spin this up so I can QA it in Slack", or "let me test your branch end to end".
+description: Run the current worktree as a production-shaped local dev instance — core and Slack, on a real LLM + Postgres — reachable in Slack as your own bot. Each developer uses their own set of Slack apps from their own machine's pool store, so many worktrees (yours and a teammate's) can run reachable at once without colliding. Use when asked to /dev-instance, "spin this up so I can QA it in Slack", or "let me test your branch end to end".
 ---
 
 # dev-instance
@@ -39,7 +39,7 @@ The supervisor restarts crashed children with backoff, waits for a port to actua
 before respawning (no more EADDRINUSE), health-probes everything every 10s, and writes a
 heartbeat so slot reclaim can tell "actively in use" from "abandoned".
 
-**`up` only prints success after proving the bot is reachable**: the Slack socket must be
+**When Slack is enabled, `up` only prints success after proving the bot is reachable**: the Slack socket must be
 the app's _only_ connection (`num_connections == 1`, read from the hello frame) and — when
 the slot has a `CANARY_CHANNEL` — a posted canary message must arrive back over that same
 socket. If Slack reports multiple connections, `up` flags the slot for 30 minutes and

@@ -12,12 +12,17 @@ store on every call, and every call is audited under their name. Two standing ru
 **confirm before any mutation** (state exactly what you'll change and where), and report
 afterwards exactly what changed. Reads are fine to just do.
 
-Three limits the API enforces (don't offer what it will refuse):
+Limits the API enforces (don't offer what it will refuse):
 
 - Your token elevates only on turns the admin **started themselves** — on autonomous
   runs (crons, webhooks) the admin plane refuses it, whoever owns the run.
 - Reads that return private content — transcripts, files, notebooks, logs, another
-  scope's config — only work from a **DM** with the admin. Two exceptions: org-targeted
+  scope's config — work from a **DM** with the admin, or from an **Open** conversation
+  on a live admin turn. Organization, personal, and conversation sharing restrictions
+  all apply; any Isolated setting keeps the DM requirement. The request uses the
+  authenticated speaker's live admin grant, not another participant's authority.
+  Open reads can expose private data to everyone in the conversation: retrieve and
+  report only what the request needs. Two other exceptions: org-targeted
   memory/config reads work anywhere (org content is ambient to every conversation), and
   a cron can carry **unattended read grants** (`unattendedGrants` on the cron:
   `admin.sessions.read`, `admin.audit.read`, `admin.metrics.read`, `admin.egress.read`,
@@ -27,6 +32,7 @@ Three limits the API enforces (don't offer what it will refuse):
   (re-checked live — revoking their admin grant closes it). Other mutations work
   anywhere; the room sees what changed, by design.
 - **Grant changes (promote/revoke) are operator-only** — see below.
+- Bulk configuration import is not supported. Use the individual configuration resources instead.
 
 All calls share one shape — only method/path/body vary:
 
@@ -42,41 +48,53 @@ GET /v1/admin/whoami        → {"isAdmin":true,"role":"org_admin","scopeId":"or
 
 ## Guide Slack installation
 
-Offer this early in admin onboarding. It is separate from personal account connections;
-missing Composio or direct OAuth setup is not a reason to require provider configuration.
-Verify admin status first. On a human-started admin turn, read
-`GET /v1/admin/slack-installation`; it returns setup metadata, not tokens. A failed
-read means unknown, not absent. Never inspect deployment secrets to infer status.
+Check this silently before offering Slack bot setup during admin onboarding. It is
+separate from personal account connections. Verify admin status first. On a
+human-started admin turn, read `GET /v1/admin/slack-installation`; it returns setup
+metadata, not tokens. A failed read means unknown, not absent. Never inspect
+deployment secrets to infer status.
 
-- `configured: true`: reuse the existing bot, including environment-backed installs.
-  This is not a live connectivity check; help them send a mention or DM to verify a reply.
-- `managed: true`, `configured: false`: leave the deliberately disabled bot alone
-  unless the admin asks to re-enable it.
-- `source: "invalid_environment"`: help finish the existing setup with the deployment
-  operator; do not create a duplicate app.
-- Otherwise offer the setup below. It is optional; continue onboarding if deferred.
+- `configured: true`: skip silently during onboarding, including environment-backed
+  installs. Do not add a setup heading, say "already connected", or ask for a test DM.
+  Configuration is not a live connectivity check; troubleshoot only if asked.
+- `managed: true`, `configured: false`: leave disabled setup alone unless the admin
+  asks to resume or re-enable it. Do not advertise it during onboarding.
+- `source: "invalid_environment"`: this is incomplete setup, not an absent app. Do
+  not create a duplicate; offer to finish the existing setup using its secure page.
+- Only a successful read confirming an absent bot warrants a new setup offer.
+  Respect a prior deferral and continue with personal connections.
 
-When `installAvailable: true`, the admin completes **Add to Slack** through the install
-flow the deployment offers. Use the URL the deployment gives you, not an invented
-hostname or a launch ticket minted in the agent's shell. Walk the admin through the
-offered flow, one step at a time:
+For company-owned provisioning, the status response supplies `setup.tokenUrl`,
+`setup.submitUrl`, and `setup.installUrl`. They are stable authenticated QM entry
+links, not expiring tickets. Never invent URLs or mint launch tickets in the shell.
 
-1. If a configuration-token form appears, open [Slack app settings](https://api.slack.com/apps).
-   Under **App Configuration Tokens**, choose **Generate Token**, select the intended
-   workspace, and copy the **access token**, not the refresh token.
-2. Explain that this token can manage other apps they own in that workspace. QM uses
-   it briefly to create/configure its app, then discards it. Paste it only into the
-   secure setup form, never in chat, memory, files, or the keychain. Choose **Create
-   app and continue to Slack**; QM receives the app credentials automatically.
-3. Check the workspace and permissions, then choose **Install / Allow**. An existing
-   app may go straight to consent without another token. Do not recreate it.
-4. After the redirect to QM, re-read status. Say **Connected** only if configured;
-   require a real reply to a DM or mention before claiming the bot works. Follow the
-   page's recovery instructions after failure rather than blindly repeating creation.
+Present all three links together in one message, so the admin can work through them
+without another assistant reply:
+
+1. Create token: open `setup.tokenUrl`. Under **App Configuration Tokens**, choose
+   **Generate Token**, select the intended workspace, and copy the **access token**,
+   not the refresh token.
+2. Submit token: open `setup.submitUrl`, the secure provisioning form. This is
+   not a generic keychain token-drop. The token can manage other apps they own in
+   that workspace. QM creates/configures its app, then discards the token.
+   Never paste it in chat, memory, files, or the keychain.
+3. Add to Slack: open `setup.installUrl` after submitting the token, review the
+   workspace, and choose **Allow**. The company owns the app.
+
+`setup.appReady` means the app exists; it does not mean it is installed.
+Only verified `setup.connected` together with `configured` warrants **Connected**.
+Require a real reply before claiming the bot works, not as an onboarding prerequisite.
+A failed status read or `setupUnavailable` means unknown, not absent. Do not restart
+provisioning or create a duplicate. Retry the existing links or follow recovery guidance.
+
+Older services may return `installAvailable: true` without `setup`. That only promises
+the **Add to Slack** action behind core's Slack installation route. Give its known entry
+link and instructions together instead of fabricating a token-drop.
 
 Without managed installation, use the returned `createUrl` and its workspace app guide.
-Have them enter credentials only in that secure form. Do not guess scopes,
-callback URLs, or credential requirements; reuse existing setup and recheck status.
+Do not ask for a configuration token this flow cannot consume. Have them enter
+credentials only in its secure form. Do not guess scopes, callback URLs, or credential
+requirements. Setup is optional; continue onboarding if deferred.
 
 ## Finding the scope
 
@@ -161,7 +179,7 @@ first admin of an org that has none. Grants never change through an agent. If as
   revoked). Say so; don't retry or work around it.
 - `403 … require a turn the admin started themselves` — this is an autonomous run
   (cron/webhook); admin actions only ride turns the admin personally initiated. Say so.
-- `403 … returns private content — ask the agent in a DM` — you're in a shared room;
+- `403 … returns private content — ask the agent in a DM` — the shared room does not have effective Open access for this live admin turn;
   tell the admin to ask again in a DM with you (or, for reads they want recurring
   on a schedule, to put an unattended read grant on a personal-scope cron — from
   their DM, never from here).

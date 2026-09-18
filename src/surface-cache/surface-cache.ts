@@ -119,6 +119,18 @@ export function createPostgresSurfaceCache(
       id: "surface-cache/store/0004",
       statements: [`ALTER TABLE channel_messages ADD COLUMN IF NOT EXISTS broadcast BOOLEAN NOT NULL DEFAULT FALSE`],
     },
+    {
+      id: "surface-cache/store/0005",
+      statements: [`ALTER TABLE channel_messages ADD COLUMN IF NOT EXISTS subtype TEXT`],
+    },
+    {
+      id: "surface-cache/store/0006",
+      statements: [
+        `ALTER TABLE channel_messages ADD COLUMN IF NOT EXISTS bot_id TEXT`,
+        `ALTER TABLE channel_files ADD COLUMN IF NOT EXISTS title TEXT`,
+        `ALTER TABLE channel_files ADD COLUMN IF NOT EXISTS size BIGINT`,
+      ],
+    },
   ]);
 
   const liveFallback = opts.liveFallback;
@@ -128,7 +140,9 @@ export function createPostgresSurfaceCache(
       container: r.container as string,
       ts: r.ts as string,
       ...(r.sub != null ? { sub: r.sub as string } : {}),
+      ...(r.subtype != null ? { subtype: r.subtype as string } : {}),
       ...(r.broadcast ? { broadcast: true } : {}),
+      ...(r.bot_id != null ? { botId: r.bot_id as string } : {}),
       ...(r.author_id != null ? { authorId: r.author_id as string } : {}),
       ...(r.author_name != null ? { authorName: r.author_name as string } : {}),
       text: (r.text as string) ?? "",
@@ -158,11 +172,13 @@ export function createPostgresSurfaceCache(
           const e = normalizeEvent(event);
           if (!e.container || !e.ts) continue;
           const res = await client.query(
-            `INSERT INTO channel_messages(org_id, container, ts, sub, author_id, author_name, text, mentions, self, bot, mentions_self, edited_at, deleted, handled, created_at, deleted_at, broadcast)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$14,$15,$16,COALESCE($18::boolean, FALSE))
+            `INSERT INTO channel_messages(org_id, container, ts, sub, author_id, author_name, text, mentions, self, bot, mentions_self, edited_at, deleted, handled, created_at, deleted_at, broadcast, subtype, bot_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$14,$15,$16,COALESCE($18::boolean, FALSE),$19,$20)
              ON CONFLICT (org_id, container, ts) DO UPDATE SET
                sub = CASE WHEN EXCLUDED.deleted OR channel_messages.deleted OR COALESCE(EXCLUDED.edited_at, 0) < COALESCE(channel_messages.edited_at, 0) OR NOT $17 THEN channel_messages.sub ELSE EXCLUDED.sub END,
+               subtype = CASE WHEN EXCLUDED.deleted OR channel_messages.deleted OR COALESCE(EXCLUDED.edited_at, 0) < COALESCE(channel_messages.edited_at, 0) THEN channel_messages.subtype ELSE COALESCE(EXCLUDED.subtype, channel_messages.subtype) END,
                broadcast = CASE WHEN EXCLUDED.deleted OR channel_messages.deleted OR COALESCE(EXCLUDED.edited_at, 0) < COALESCE(channel_messages.edited_at, 0) OR $18::boolean IS NULL THEN channel_messages.broadcast ELSE EXCLUDED.broadcast END,
+               bot_id = CASE WHEN EXCLUDED.deleted OR channel_messages.deleted OR COALESCE(EXCLUDED.edited_at, 0) < COALESCE(channel_messages.edited_at, 0) THEN channel_messages.bot_id ELSE COALESCE(EXCLUDED.bot_id, channel_messages.bot_id) END,
                author_id = CASE WHEN EXCLUDED.deleted OR channel_messages.deleted OR COALESCE(EXCLUDED.edited_at, 0) < COALESCE(channel_messages.edited_at, 0) THEN channel_messages.author_id ELSE COALESCE(EXCLUDED.author_id, channel_messages.author_id) END,
                author_name = CASE WHEN EXCLUDED.deleted OR channel_messages.deleted OR COALESCE(EXCLUDED.edited_at, 0) < COALESCE(channel_messages.edited_at, 0) THEN channel_messages.author_name ELSE COALESCE(EXCLUDED.author_name, channel_messages.author_name) END,
                text = CASE WHEN EXCLUDED.deleted OR channel_messages.deleted OR COALESCE(EXCLUDED.edited_at, 0) < COALESCE(channel_messages.edited_at, 0) THEN channel_messages.text ELSE EXCLUDED.text END,
@@ -197,6 +213,8 @@ export function createPostgresSurfaceCache(
               e.deleted ? now : null,
               e.sub !== undefined,
               e.broadcast ?? null,
+              e.subtype ?? null,
+              e.botId ?? null,
             ],
           );
           upserted += res.rowCount ?? 0;
@@ -209,10 +227,20 @@ export function createPostgresSurfaceCache(
             for (const f of e.files) {
               if (!f.fileId) continue;
               await client.query(
-                `INSERT INTO channel_files(org_id, container, ts, file_id, name, mimetype, created_at)
-               VALUES ($1,$2,$3,$4,$5,$6,$7)
-               ON CONFLICT (org_id, container, ts, file_id) DO UPDATE SET name = EXCLUDED.name, mimetype = EXCLUDED.mimetype`,
-                [orgId, e.container, e.ts, f.fileId, f.name ?? null, f.mimetype ?? null, e.createdAt ?? now],
+                `INSERT INTO channel_files(org_id, container, ts, file_id, name, mimetype, created_at, title, size)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+               ON CONFLICT (org_id, container, ts, file_id) DO UPDATE SET name = EXCLUDED.name, mimetype = EXCLUDED.mimetype, title = EXCLUDED.title, size = EXCLUDED.size`,
+                [
+                  orgId,
+                  e.container,
+                  e.ts,
+                  f.fileId,
+                  f.name ?? null,
+                  f.mimetype ?? null,
+                  e.createdAt ?? now,
+                  f.title ?? null,
+                  f.size ?? null,
+                ],
               );
             }
           }
@@ -281,7 +309,7 @@ export function createPostgresSurfaceCache(
       if (!opts.includeDeleted) conds.push("deleted = FALSE");
       args.push(limit);
       const rows = await q(
-        `SELECT channel_messages.*, (SELECT COUNT(*) FROM channel_messages replies WHERE replies.org_id = channel_messages.org_id AND replies.container = channel_messages.container AND replies.sub = channel_messages.ts AND replies.ts <> channel_messages.ts AND replies.deleted = FALSE) AS reply_count, (SELECT json_agg(json_build_object('fileId', f.file_id, 'name', f.name, 'mimetype', f.mimetype)) FROM channel_files f WHERE f.org_id = channel_messages.org_id AND f.container = channel_messages.container AND f.ts = channel_messages.ts) AS files FROM channel_messages WHERE ${conds.join(" AND ")} ORDER BY ts ${opts.oldestFirst ? "ASC" : "DESC"} LIMIT $${args.length}`,
+        `SELECT channel_messages.*, (SELECT COUNT(*) FROM channel_messages replies WHERE replies.org_id = channel_messages.org_id AND replies.container = channel_messages.container AND replies.sub = channel_messages.ts AND replies.ts <> channel_messages.ts AND replies.deleted = FALSE) AS reply_count, (SELECT json_agg(json_build_object('fileId', f.file_id, 'name', f.name, 'mimetype', f.mimetype, 'title', f.title, 'size', f.size)) FROM channel_files f WHERE f.org_id = channel_messages.org_id AND f.container = channel_messages.container AND f.ts = channel_messages.ts) AS files FROM channel_messages WHERE ${conds.join(" AND ")} ORDER BY ts ${opts.oldestFirst ? "ASC" : "DESC"} LIMIT $${args.length}`,
         args,
       );
       const hit = rows.map(rowToMessage);
@@ -297,7 +325,6 @@ export function createPostgresSurfaceCache(
       const conds = [
         "org_id = $1",
         "container = $2",
-        "self = FALSE",
         "((edited_at > 0 AND edited_at >= $3) OR (deleted_at > 0 AND deleted_at >= $3))",
       ];
       const args: unknown[] = [orgId, container, since];
@@ -457,7 +484,9 @@ export function createMemorySurfaceCache(opts: { liveFallback?: LiveFallback } =
             ...((e.sub === undefined ? existing?.sub : e.sub)
               ? { sub: (e.sub === undefined ? existing?.sub : e.sub) as string }
               : {}),
+            ...((e.subtype ?? existing?.subtype) !== undefined ? { subtype: e.subtype ?? existing?.subtype } : {}),
             ...((e.broadcast ?? existing?.broadcast) ? { broadcast: true } : {}),
+            ...((e.botId ?? existing?.botId) ? { botId: e.botId ?? existing?.botId } : {}),
             ...((e.authorId ?? existing?.authorId) ? { authorId: (e.authorId ?? existing?.authorId) as string } : {}),
             ...((e.authorName ?? existing?.authorName)
               ? { authorName: (e.authorName ?? existing?.authorName) as string }
@@ -544,7 +573,15 @@ export function createMemorySurfaceCache(opts: { liveFallback?: LiveFallback } =
             (reply) => reply.sub === m.ts && reply.ts !== m.ts && !reply.deleted,
           ).length,
           ...(attached.length
-            ? { files: attached.map(({ fileId, name, mimetype }) => ({ fileId, name, mimetype })) }
+            ? {
+                files: attached.map(({ fileId, name, title, size, mimetype }) => ({
+                  fileId,
+                  name,
+                  ...(title !== undefined ? { title } : {}),
+                  ...(size !== undefined ? { size } : {}),
+                  mimetype,
+                })),
+              }
             : {}),
         };
       });
@@ -557,7 +594,7 @@ export function createMemorySurfaceCache(opts: { liveFallback?: LiveFallback } =
 
     async revisedSince(container, since, o = {}) {
       return [...containerMsgs(container).values()]
-        .filter((m) => !m.self && revisedAt(m) > 0 && revisedAt(m) >= since)
+        .filter((m) => revisedAt(m) > 0 && revisedAt(m) >= since)
         .filter((m) => !o.thread || m.sub === o.thread || m.ts === o.thread)
         .sort((a, b) => revisedAt(b) - revisedAt(a) || compareTs(b, a))
         .slice(0, REVISION_SCAN_LIMIT);

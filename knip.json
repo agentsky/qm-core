@@ -19,6 +19,7 @@
         "scripts/backfill-session-tape.ts",
         "scripts/backfill-tape-render-import.ts",
         "scripts/tape-parity-check.ts",
+        "scripts/update-qm.ts",
         "scripts/e2b-live-smoke.mjs",
         "scripts/modal-live-smoke.mjs",
         "scripts/dev/cli.ts",
